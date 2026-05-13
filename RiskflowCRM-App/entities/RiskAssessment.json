@@ -1,0 +1,77 @@
+{
+  "name": "RiskAssessment",
+  "type": "object",
+  "properties": {
+    "title": {
+      "type": "string",
+      "description": "Risk title"
+    },
+    "category": {
+      "type": "string",
+      "enum": [
+        "credit",
+        "market",
+        "operational",
+        "liquidity",
+        "compliance",
+        "strategic"
+      ],
+      "default": "credit"
+    },
+    "severity": {
+      "type": "string",
+      "enum": [
+        "low",
+        "medium",
+        "high",
+        "critical"
+      ],
+      "default": "medium"
+    },
+    "likelihood": {
+      "type": "string",
+      "enum": [
+        "rare",
+        "unlikely",
+        "possible",
+        "likely",
+        "almost_certain"
+      ],
+      "default": "possible"
+    },
+    "impact_score": {
+      "type": "number",
+      "description": "Impact score 1-10"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "identified",
+        "analyzing",
+        "mitigating",
+        "resolved",
+        "accepted"
+      ],
+      "default": "identified"
+    },
+    "description": {
+      "type": "string"
+    },
+    "mitigation_plan": {
+      "type": "string"
+    },
+    "owner": {
+      "type": "string",
+      "description": "Risk owner name"
+    },
+    "review_date": {
+      "type": "string",
+      "format": "date"
+    }
+  },
+  "required": [
+    "title",
+    "category",
+    "severity"
+  ]
+}

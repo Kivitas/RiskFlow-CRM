@@ -1,0 +1,69 @@
+{
+  "name": "Contact",
+  "type": "object",
+  "properties": {
+    "first_name": {
+      "type": "string",
+      "description": "First name"
+    },
+    "last_name": {
+      "type": "string",
+      "description": "Last name"
+    },
+    "email": {
+      "type": "string",
+      "description": "Email address"
+    },
+    "phone": {
+      "type": "string",
+      "description": "Phone number"
+    },
+    "company": {
+      "type": "string",
+      "description": "Company name"
+    },
+    "job_title": {
+      "type": "string",
+      "description": "Job title"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "lead",
+        "prospect",
+        "customer",
+        "churned"
+      ],
+      "default": "lead"
+    },
+    "source": {
+      "type": "string",
+      "enum": [
+        "website",
+        "referral",
+        "cold_call",
+        "event",
+        "social_media",
+        "other"
+      ],
+      "default": "website"
+    },
+    "notes": {
+      "type": "string",
+      "description": "Notes"
+    },
+    "avatar_url": {
+      "type": "string",
+      "description": "Avatar image URL"
+    },
+    "lifetime_value": {
+      "type": "number",
+      "default": 0
+    }
+  },
+  "required": [
+    "first_name",
+    "last_name",
+    "email"
+  ]
+}

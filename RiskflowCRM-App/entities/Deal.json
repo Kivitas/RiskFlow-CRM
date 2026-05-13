@@ -1,0 +1,57 @@
+{
+  "name": "Deal",
+  "type": "object",
+  "properties": {
+    "title": {
+      "type": "string",
+      "description": "Deal title"
+    },
+    "contact_id": {
+      "type": "string",
+      "description": "Associated contact ID"
+    },
+    "contact_name": {
+      "type": "string",
+      "description": "Contact display name"
+    },
+    "value": {
+      "type": "number",
+      "description": "Deal value in dollars"
+    },
+    "stage": {
+      "type": "string",
+      "enum": [
+        "discovery",
+        "proposal",
+        "negotiation",
+        "closed_won",
+        "closed_lost"
+      ],
+      "default": "discovery"
+    },
+    "probability": {
+      "type": "number",
+      "description": "Win probability percentage"
+    },
+    "expected_close_date": {
+      "type": "string",
+      "format": "date"
+    },
+    "notes": {
+      "type": "string"
+    },
+    "priority": {
+      "type": "string",
+      "enum": [
+        "low",
+        "medium",
+        "high"
+      ],
+      "default": "medium"
+    }
+  },
+  "required": [
+    "title",
+    "value"
+  ]
+}

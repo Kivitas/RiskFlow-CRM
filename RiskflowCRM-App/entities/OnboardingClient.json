@@ -1,0 +1,123 @@
+{
+  "name": "OnboardingClient",
+  "type": "object",
+  "properties": {
+    "client_name": {
+      "type": "string"
+    },
+    "company": {
+      "type": "string"
+    },
+    "email": {
+      "type": "string"
+    },
+    "phone": {
+      "type": "string"
+    },
+    "onboarding_stage": {
+      "type": "string",
+      "enum": [
+        "intake",
+        "kyc_verification",
+        "risk_profiling",
+        "document_collection",
+        "account_setup",
+        "completed"
+      ],
+      "default": "intake"
+    },
+    "assigned_to": {
+      "type": "string"
+    },
+    "priority": {
+      "type": "string",
+      "enum": [
+        "low",
+        "medium",
+        "high"
+      ],
+      "default": "medium"
+    },
+    "kyc_status": {
+      "type": "string",
+      "enum": [
+        "pending",
+        "in_review",
+        "approved",
+        "rejected"
+      ],
+      "default": "pending"
+    },
+    "documents_uploaded": {
+      "type": "number",
+      "default": 0
+    },
+    "documents_required": {
+      "type": "number",
+      "default": 5
+    },
+    "uploaded_files": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          },
+          "size": {
+            "type": "number"
+          },
+          "uploaded_at": {
+            "type": "string"
+          },
+          "category": {
+            "type": "string"
+          }
+        }
+      },
+      "default": []
+    },
+    "notes": {
+      "type": "string"
+    },
+    "target_completion_date": {
+      "type": "string",
+      "format": "date"
+    },
+    "nationality": {
+      "type": "string"
+    },
+    "date_of_birth": {
+      "type": "string",
+      "format": "date"
+    },
+    "id_number": {
+      "type": "string"
+    },
+    "risk_profile": {
+      "type": "string",
+      "enum": [
+        "conservative",
+        "moderate",
+        "aggressive"
+      ],
+      "default": "moderate"
+    },
+    "investment_amount": {
+      "type": "number"
+    },
+    "source_of_funds": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "client_name",
+    "email"
+  ]
+}
