@@ -63,6 +63,6 @@ The app uses `RiskflowCRM-App/public/riskflow-logo.png` as the primary logo. Rep
 
 ## License
 
-Copyright (C) 2026 [name]
+Copyright (C) 2026 Kivitas
 
 Licensed under the GNU Affero General Public License v3.0 only (AGPLv3). See `LICENSE`.
