@@ -8,7 +8,7 @@ RiskFlow CRM is a local-first business management workspace for CRM, sales, inve
 
 - CRM contacts, deals, onboarding, and risk management.
 - Inventory, sales, procurement, accounting, payments, approvals, and audit logs.
-- Data Center for importing, exporting, and analysing CSV/ODS files from one section.
+- Data Center for importing, exporting, and analysing CSV/ODS/Excel/Google Sheets files from one section.
 - Report exports as PDF, CSV, and ODS.
 - Branded invoice export with email and WhatsApp workflow links.
 - AI assistant support for OpenAI, Gemini, and Anthropic keys configured inside the app.
