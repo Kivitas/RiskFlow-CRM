@@ -57,9 +57,6 @@ npm run build
 
 RiskFlow CRM stores workspace data locally in the browser for `http://127.0.0.1:5173/`. There is no cloud sync by default. Users start from the sign-up screen on a clean install.
 
-## Branding
-
-The app uses `RiskflowCRM-App/public/riskflow-logo.png` as the primary logo. Replace that file with the final production logo before publishing screenshots or releases.
 
 ## License
 
