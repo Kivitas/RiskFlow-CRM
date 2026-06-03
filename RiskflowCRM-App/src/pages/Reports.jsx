@@ -50,7 +50,6 @@ export default function Reports() {
     && sales.length === 0 && purchaseOrders.length === 0 && expenses.length === 0
     && quotes.length === 0 && salesOrders.length === 0 && payments.length === 0 && approvals.length === 0;
 
-  // Currency-aware tooltip
   const Tip = ({ active, payload, label, dollar }) => {
     if (!active || !payload?.length) return null;
     return (
@@ -65,7 +64,6 @@ export default function Reports() {
     );
   };
 
-  // KPIs
   const wonDeals = deals.filter(d => d.stage === 'closed_won');
   const lostDeals = deals.filter(d => d.stage === 'closed_lost');
   const closedTotal = wonDeals.length + lostDeals.length;

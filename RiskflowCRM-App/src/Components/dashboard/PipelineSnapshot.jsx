@@ -2,7 +2,6 @@ import React, { useState } from 'react';
 import { cn } from '@/lib/utils';
 import { useCurrency } from '@/lib/CurrencyContext';
 
-// Currency-aware pipeline snapshot with correct formatting
 const stages = [
   { key: 'discovery',   label: 'Discovery',    color: 'bg-blue-500' },
   { key: 'proposal',    label: 'Proposal',     color: 'bg-indigo-500' },

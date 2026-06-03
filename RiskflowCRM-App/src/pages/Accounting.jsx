@@ -20,7 +20,6 @@ import { cn } from '@/lib/utils';
 
 const COLORS = ['hsl(230,65%,52%)', 'hsl(172,60%,42%)', 'hsl(38,92%,55%)', 'hsl(0,72%,55%)', 'hsl(280,55%,55%)'];
 
-// Safe ISO date parse to avoid crashes from invalid date strings
 const safeParse = (dateStr) => {
   try { return parseISO(dateStr); } catch { return new Date(0); }
 };
@@ -70,7 +69,6 @@ export default function Accounting() {
     }, {})
   ), [expenses]);
 
-  // Custom tooltip that uses formatMoney for currency-aware display
   const ChartTooltip = ({ active, payload, label }) => {
     if (!active || !payload?.length) return null;
     return (

@@ -42,7 +42,6 @@ const AuthenticatedApp = () => {
   const { isLoadingAuth, isLoadingPublicSettings, isAuthenticated, authError } = useAuth();
   const { isReady, hasCompletedSetup, requiresPassword, isUnlocked } = useBusiness();
 
-  // Show loading spinner while checking app public settings or auth
   if (isLoadingPublicSettings || isLoadingAuth || !isReady) {
     return (
       <div className="fixed inset-0 flex items-center justify-center">
@@ -72,7 +71,6 @@ const AuthenticatedApp = () => {
     return <LoginScreen />;
   }
 
-  // Render the main app
   return (
     <Routes>
       <Route element={<AppLayout />}>

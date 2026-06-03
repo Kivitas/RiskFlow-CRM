@@ -371,7 +371,6 @@ export default function Workspace() {
         </div>
       )}
 
-      {/* ── WAREHOUSES ── */}
       {activeTab === 'Warehouses' && (
         <div className="space-y-4">
           <div className="flex flex-wrap gap-2">
@@ -441,7 +440,6 @@ export default function Workspace() {
         </div>
       )}
 
-      {/* ── ACTIVITY ── */}
       {activeTab === 'Activity' && (
         <div className="grid lg:grid-cols-[1.25fr_0.75fr] gap-4">
           <div className="bg-card rounded-xl border border-border overflow-hidden">
@@ -500,7 +498,6 @@ export default function Workspace() {
         </div>
       )}
 
-      {/* ── BACKUP ── */}
       {activeTab === 'Backup' && (
         <div className="grid lg:grid-cols-2 gap-4">
           <div className="bg-card rounded-xl border border-border p-6">

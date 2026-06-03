@@ -59,20 +59,17 @@ import { generateSaleInvoicePdf } from '@/lib/invoices';
 import { buildInvoiceMessage, openEmailWorkflow, openWhatsAppWorkflow } from '@/lib/workflowLinks';
 import { toast } from '@/components/ui/use-toast';
 
-// ─── constants ────────────────────────────────────────────────────────────────
 const CATEGORY_COLORS = [
   '#6366f1', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#06b6d4',
 ];
 const TABS = ['Overview', 'Products', 'Sales', 'Analytics', 'Barcode & AR'];
 
-// ─── helpers ──────────────────────────────────────────────────────────────────
 const pct = (num, denom) => denom ? `${((num / denom) * 100).toFixed(1)}%` : '-';
 
 const safeParse = (dateStr) => {
   try { return parseISO(dateStr); } catch { return new Date(0); }
 };
 
-// ─── KPI Card ─────────────────────────────────────────────────────────────────
 function KpiCard({ label, value, sub, icon: Icon, accent = '#6366f1', trend, trendUp }) {
   return (
     <div className="bg-white rounded-2xl border border-slate-100 p-5 shadow-sm hover:shadow-md transition-shadow duration-200 relative overflow-hidden">
@@ -104,7 +101,6 @@ function KpiCard({ label, value, sub, icon: Icon, accent = '#6366f1', trend, tre
   );
 }
 
-// ─── Stock health bar ─────────────────────────────────────────────────────────
 function StockBar({ qty, reorder, max }) {
   const ratio = max > 0 ? Math.min(qty / max, 1) : 0;
   const isLow = qty <= reorder;
@@ -120,7 +116,6 @@ function StockBar({ qty, reorder, max }) {
   );
 }
 
-// ─── Status pill ──────────────────────────────────────────────────────────────
 function StatusPill({ status }) {
   const map = {
     active: 'bg-emerald-50 text-emerald-700 border-emerald-200',
@@ -140,7 +135,6 @@ function StatusPill({ status }) {
   );
 }
 
-// ─── Main Inventory Page ──────────────────────────────────────────────────────
 export default function Inventory() {
   const qc = useQueryClient();
   const { profile } = useBusiness();
@@ -162,7 +156,6 @@ export default function Inventory() {
   const [saleSearch, setSaleSearch] = useState('');
   const [scanInput, setScanInput] = useState('');
 
-  // Use formatMoney from context everywhere instead of local money()
   const money = formatMoney;
 
   const { data: products = [] } = useQuery({
@@ -195,7 +188,6 @@ export default function Inventory() {
     [sales]
   );
 
-  // ── mutations ──
   const productMutation = useMutation({
     mutationFn: ({ id, data }) =>
       id ? crmClient.products.update(id, data) : crmClient.products.create(data),
@@ -246,7 +238,6 @@ export default function Inventory() {
     onError: (e) => toast({ title: 'Stock adjustment failed', description: e.message, variant: 'destructive' }),
   });
 
-  // ── computed stats ──
   const lowStockProducts = products.filter(
     (p) => p.status === 'active' && Number(p.stock_quantity || 0) <= Number(p.reorder_level || 0)
   );
@@ -271,7 +262,6 @@ export default function Inventory() {
     [products]
   );
 
-  // ── filtered + sorted products ──
   const filteredProducts = useMemo(() => {
     let list = products.filter((p) => {
       const matchSearch = `${p.name} ${p.sku} ${p.category} ${p.barcode || ''} ${p.ar_reference || ''}`.toLowerCase().includes(search.toLowerCase());
@@ -300,7 +290,6 @@ export default function Inventory() {
     [sales, saleSearch]
   );
 
-  // ── chart data ──
   const categoryMix = useMemo(() => Object.values(
     products.reduce((acc, p) => {
       const k = p.category || 'general';
@@ -332,7 +321,6 @@ export default function Inventory() {
     .map((p) => ({ ...p, name: p.name.length > 16 ? `${p.name.slice(0, 16)}...` : p.name })),
     [completedSales]);
 
-  // Bug fix: use safeParse instead of new Date() to avoid crashes on bad date strings
   const monthlySales = useMemo(() => Array.from({ length: 6 }, (_, i) => {
     const month = subMonths(new Date(), 5 - i);
     const interval = { start: startOfMonth(month), end: endOfMonth(month) };
@@ -399,7 +387,6 @@ export default function Inventory() {
     toast({ title: 'Product found', description: `${product.name} is now filtered in the product list.` });
   };
 
-  // Currency-aware tooltip for charts
   const CustomTooltip = ({ active, payload, label }) => {
     if (!active || !payload?.length) return null;
     return (
@@ -421,7 +408,6 @@ export default function Inventory() {
 
   return (
     <div className="min-h-screen bg-slate-50/50">
-      {/* ── Header ── */}
       <PageHeader
         title="Inventory & Sales"
         subtitle={`${profile.companyName || 'Your business'} | ${products.length} products | ${warehouses.length} warehouses | ${sales.length} transactions`}
@@ -456,7 +442,6 @@ export default function Inventory() {
         }
       />
 
-      {/* ── KPI Strip ── */}
       <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-7 gap-3 mb-5">
         <KpiCard label="Total Products" value={products.length} sub={`${outOfStock.length} out of stock`} icon={Boxes} accent="#6366f1" />
         <KpiCard label="Low Stock" value={lowStockProducts.length} sub="Need reordering" icon={AlertTriangle} accent="#f59e0b" />
@@ -467,7 +452,6 @@ export default function Inventory() {
         <KpiCard label="Pending Payments" value={money(pendingPayments)} sub="Awaiting collection" icon={RefreshCw} accent="#f59e0b" />
       </div>
 
-      {/* ── Low stock alert banner ── */}
       {lowStockProducts.length > 0 && (
         <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 mb-5 flex items-start gap-3">
           <AlertTriangle className="w-4 h-4 text-amber-500 mt-0.5 shrink-0" />
@@ -483,7 +467,6 @@ export default function Inventory() {
         </div>
       )}
 
-      {/* ── Tabs ── */}
       <div className="flex gap-1 bg-white border border-slate-200 rounded-xl p-1 mb-5 w-fit shadow-sm">
         {TABS.map((tab) => (
           <button
@@ -1213,7 +1196,6 @@ export default function Inventory() {
                 </thead>
                 <tbody className="divide-y divide-slate-50">
                   {monthlySales.map((row) => {
-                    // Bug fix: filter sales for month by month name comparison safely
                     const monthSales = completedSales.filter((s) => s.sale_date && format(safeParse(s.sale_date), 'MMM') === row.month);
                     const units = monthSales.reduce((s, x) => s + Number(x.quantity || 0), 0);
                     return (
@@ -1233,7 +1215,6 @@ export default function Inventory() {
         </>
       )}
 
-      {/* ── Dialogs ── */}
       {activeTab === 'Barcode & AR' && (
         <div className="grid gap-4 xl:grid-cols-[0.9fr_1.1fr]">
           <div className="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">

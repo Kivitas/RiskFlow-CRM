@@ -4,13 +4,13 @@ RiskFlow CRM is a local-first business management workspace for CRM, sales, inve
 
 ## Run
 
-Double-click `Riskflow.bat`.
+Unsigned launchers are built locally. From the project root, use `installation.md` to create `Riskflow.bat` or `Riskflow.exe`, then run the new launcher.
 
-## Release Features
+## Features
 
 - Reports export as PDF, CSV, ODS, and workflow messages for email or WhatsApp.
 - Invoices export as branded PDFs with email and WhatsApp follow-up workflows.
-- Data Center is the single import/export/analyse hub for contacts, reports, inventory, sales, finance, and external CSV/ODS files.
+- Data Center is the import, export, and analysis hub for contacts, reports, inventory, sales, finance, and external CSV/ODS files.
 - AI Assistant supports OpenAI, Gemini, and Anthropic with provider-managed model defaults.
 - Inventory supports barcode lookup fields and AR/3D reference metadata.
 
@@ -39,24 +39,10 @@ npm run build
 
 ## Storage
 
-The app stores workspace data in the browser for the local URL it is opened on. The bundled launcher opens `http://127.0.0.1:5173` so data stays on one browser origin.
-
-## Branding
-
-For the exact production logo, place the final raster logo at `public/riskflow-logo.png`. The app uses that path first and falls back to `public/riskflow-logo.svg` when the PNG is not present.
+The app stores workspace data in the browser for the local URL it is opened on. The local launcher opens `http://127.0.0.1:5173`, keeping data on one browser origin.
 
 ## License
 
-Copyright (C) 2026 [name]
+Copyright (C) 2026 Kivitas
 
 This project is licensed under the GNU Affero General Public License v3.0 only (AGPLv3). See `LICENSE`.
-
-## GitHub Page Checklist
-
-- Add the exact logo as the repository social preview image.
-- Put the best dashboard screenshot at the top of the README.
-- Add a short feature list with CRM, inventory, reports, invoices, AI, ODS/CSV import, WhatsApp/email workflows, and local-first storage.
-- Add 6-10 screenshots below the feature list; keep the rest in `github/screenshots`.
-- Add a clear install/run section: double-click `Riskflow.bat`.
-- Add a security note: local browser storage, optional encryption, no cloud sync unless integrations are added.
-- Add a roadmap section for real API integrations, hosted deployment, database backend, and payment provider support.

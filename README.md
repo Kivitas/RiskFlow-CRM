@@ -1,6 +1,6 @@
 # RiskFlow CRM
 
-RiskFlow CRM is a local-first business management workspace for CRM, sales, inventory, procurement, accounting, reports, branded invoices, ODS/CSV data import, and optional AI assistance.
+RiskFlow CRM is a local-first workspace for CRM, sales, inventory, procurement, accounting, reports, branded invoices, ODS/CSV data import, and optional AI assistance.
 
 ![RiskFlow CRM dashboard](RiskflowCRM-App/github/screenshots/02-dashboard.png)
 
@@ -8,7 +8,7 @@ RiskFlow CRM is a local-first business management workspace for CRM, sales, inve
 
 - CRM contacts, deals, onboarding, and risk management.
 - Inventory, sales, procurement, accounting, payments, approvals, and audit logs.
-- Data Center for importing, exporting, and analysing CSV/ODS/Excel/Google Sheets files from one section.
+- Data Center for importing, exporting, and analyzing CSV/ODS/Excel/Google Sheets files from one section.
 - Report exports as PDF, CSV, and ODS.
 - Branded invoice export with email and WhatsApp workflow links.
 - AI assistant support for OpenAI, Gemini, and Anthropic keys configured inside the app.
@@ -33,9 +33,9 @@ More screenshots are available in `RiskflowCRM-App/github/screenshots`.
 
 ## Run
 
-Double-click `Riskflow.bat`.
+Unsigned `.bat` and `.exe` launchers are not committed to this repository.
 
-The launcher starts the local app server in the background and opens `http://127.0.0.1:5173/`.
+Use `installation.md` to build `Riskflow.bat` or `Riskflow.exe` locally. The launcher starts the app server and opens `http://127.0.0.1:5173/`.
 
 ## Development
 
@@ -53,10 +53,9 @@ npm install
 npm run build
 ```
 
-## Data And Privacy
+## Data and Privacy
 
 RiskFlow CRM stores workspace data locally in the browser for `http://127.0.0.1:5173/`. There is no cloud sync by default. Users start from the sign-up screen on a clean install.
-
 
 ## License
 
