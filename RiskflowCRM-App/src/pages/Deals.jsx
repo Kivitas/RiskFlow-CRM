@@ -4,12 +4,14 @@ import { crmClient } from '@/api/crmClient';
 import { Plus, TrendingUp, MoreHorizontal, Pencil, Trash2, FileText } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Skeleton } from '@/components/ui/skeleton';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
+import { toast } from '@/components/ui/use-toast';
 import PageHeader from '@/components/shared/PageHeader';
 import EmptyState from '@/components/shared/EmptyState';
-import DealFormDialog from '@/Components/deals/DealFromDialog';
+import DealFormDialog from '@/components/deals/DealFromDialog';
 import { cn } from '@/lib/utils';
-import { format } from 'date-fns';
+import { format, isValid, parseISO } from 'date-fns';
 import { useBusiness } from '@/lib/BusinessContext';
 import { useConfirm } from '@/lib/ConfirmContext';
 import { useCurrency } from '@/lib/CurrencyContext';
@@ -29,6 +31,14 @@ const priorityColors = {
   high: 'bg-red-50 text-red-600 border-red-200',
 };
 
+// Dates are stored as YYYY-MM-DD. new Date() would read those as UTC and show the previous day
+// in US time zones, so parse them as local dates instead.
+const formatDate = (value, pattern) => {
+  if (!value) return '-';
+  const date = parseISO(String(value));
+  return isValid(date) ? format(date, pattern) : '-';
+};
+
 export default function Deals() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editDeal, setEditDeal] = useState(null);
@@ -46,16 +56,19 @@ export default function Deals() {
   const createMutation = useMutation({
     mutationFn: (data) => crmClient.entities.Deal.create(data),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['deals'] }); setDialogOpen(false); },
+    onError: (e) => toast({ title: 'Deal save failed', description: e.message, variant: 'destructive' }),
   });
 
   const updateMutation = useMutation({
     mutationFn: ({ id, data }) => crmClient.entities.Deal.update(id, data),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['deals'] }); setDialogOpen(false); setEditDeal(null); },
+    onError: (e) => toast({ title: 'Deal save failed', description: e.message, variant: 'destructive' }),
   });
 
   const deleteMutation = useMutation({
     mutationFn: (id) => crmClient.entities.Deal.delete(id),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['deals'] }),
+    onError: (e) => toast({ title: 'Delete failed', description: e.message, variant: 'destructive' }),
   });
 
   const handleDeleteDeal = async (deal) => {
@@ -106,10 +119,20 @@ export default function Deals() {
         }
       />
 
-      {deals.length === 0 && !isLoading ? (
+      {isLoading ? (
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4" aria-busy="true" aria-label="Loading deals">
+          {stages.map(stage => (
+            <div key={stage} className="bg-muted/30 rounded-xl p-3 space-y-3">
+              <Skeleton className="h-4 w-24" />
+              <Skeleton className="h-20 w-full rounded-lg" />
+              <Skeleton className="h-20 w-full rounded-lg" />
+            </div>
+          ))}
+        </div>
+      ) : deals.length === 0 ? (
         <EmptyState icon={TrendingUp} title="No deals yet" description="Create your first deal to start tracking your pipeline." actionLabel="Add Deal" onAction={() => setDialogOpen(true)} />
       ) : viewMode === 'board' ? (
-        <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
           {stages.map(stage => {
             const stageDeals = deals.filter(d => d.stage === stage);
             const stageTotal = stageDeals.reduce((s, d) => s + (d.value || 0), 0);
@@ -128,7 +151,7 @@ export default function Deals() {
                         <p className="text-sm font-medium text-card-foreground">{deal.title}</p>
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
-                            <Button variant="ghost" size="icon" className="h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity">
+                            <Button variant="ghost" size="icon" className="h-6 w-6 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity" aria-label={`Actions for ${deal.title}`}>
                               <MoreHorizontal className="w-3.5 h-3.5" />
                             </Button>
                           </DropdownMenuTrigger>
@@ -160,7 +183,8 @@ export default function Deals() {
         </div>
       ) : (
         <div className="bg-card rounded-xl border border-border overflow-hidden">
-          <table className="w-full">
+          <div className="overflow-x-auto">
+          <table className="w-full min-w-[720px]">
             <thead>
               <tr className="border-b border-border bg-muted/30">
                 <th className="text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider px-4 py-3">Deal</th>
@@ -182,12 +206,12 @@ export default function Deals() {
                   <td className="px-4 py-3"><Badge variant="outline" className={cn("text-xs", stageConfig[deal.stage]?.color)}>{stageConfig[deal.stage]?.label}</Badge></td>
                   <td className="px-4 py-3"><Badge variant="outline" className={cn("text-xs capitalize", priorityColors[deal.priority])}>{deal.priority}</Badge></td>
                   <td className="px-4 py-3 text-sm text-muted-foreground">
-                    {deal.expected_close_date ? format(new Date(deal.expected_close_date), 'MMM d, yyyy') : '-'}
+                    {formatDate(deal.expected_close_date, 'MMM d, yyyy')}
                   </td>
                   <td className="px-4 py-3 text-right">
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="icon" className="h-8 w-8"><MoreHorizontal className="w-4 h-4" /></Button>
+                        <Button variant="ghost" size="icon" className="h-8 w-8" aria-label={`Actions for ${deal.title}`}><MoreHorizontal className="w-4 h-4" /></Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
                         <DropdownMenuItem onClick={() => { setEditDeal(deal); setDialogOpen(true); }}>
@@ -206,10 +230,11 @@ export default function Deals() {
               ))}
             </tbody>
           </table>
+          </div>
         </div>
       )}
 
-      <DealFormDialog open={dialogOpen} onOpenChange={setDialogOpen} deal={editDeal} onSave={handleSave} />
+      <DealFormDialog open={dialogOpen} onOpenChange={setDialogOpen} deal={editDeal} isSaving={createMutation.isPending || updateMutation.isPending} onSave={handleSave} />
     </div>
   );
 }

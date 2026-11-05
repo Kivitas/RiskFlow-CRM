@@ -34,3 +34,7 @@ coverage
 .env
 .vite
 Thumbs.db
+
+# Windows shell metadata
+desktop.ini
+Thumbs.db

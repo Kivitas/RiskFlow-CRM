@@ -11,12 +11,14 @@ import { Button } from '@/components/ui/button';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import PageHeader from '@/components/shared/PageHeader';
 import EmptyState from '@/components/shared/EmptyState';
-import ExpenseFormDialog from '@/Components/accounting/ExpenseFormDialog';
+import ExpenseFormDialog from '@/components/accounting/ExpenseFormDialog';
 import { CreditCard, Landmark, MoreHorizontal, Plus, Receipt, TrendingDown, TrendingUp, Wallet } from 'lucide-react';
 import { useBusiness } from '@/lib/BusinessContext';
 import { useConfirm } from '@/lib/ConfirmContext';
 import { useCurrency } from '@/lib/CurrencyContext';
 import { cn } from '@/lib/utils';
+import { Skeleton } from '@/components/ui/skeleton';
+import { toast } from '@/components/ui/use-toast';
 
 const COLORS = ['hsl(230,65%,52%)', 'hsl(172,60%,42%)', 'hsl(38,92%,55%)', 'hsl(0,72%,55%)', 'hsl(280,55%,55%)'];
 
@@ -32,10 +34,15 @@ export default function Accounting() {
   const [expenseDialogOpen, setExpenseDialogOpen] = useState(false);
   const [editingExpense, setEditingExpense] = useState(null);
 
-  const { data: sales = [] } = useQuery({ queryKey: ['sales'], queryFn: () => crmClient.sales.list('-sale_date') });
-  const { data: deals = [] } = useQuery({ queryKey: ['deals'], queryFn: () => crmClient.entities.Deal.list('-updated_date') });
-  const { data: expenses = [] } = useQuery({ queryKey: ['expenses'], queryFn: () => crmClient.expenses.list('-expense_date') });
-  const { data: purchaseOrders = [] } = useQuery({ queryKey: ['purchase-orders'], queryFn: () => crmClient.purchases.list('-order_date') });
+  const salesQuery = useQuery({ queryKey: ['sales'], queryFn: () => crmClient.sales.list('-sale_date') });
+  const dealsQuery = useQuery({ queryKey: ['deals'], queryFn: () => crmClient.entities.Deal.list('-updated_date') });
+  const expensesQuery = useQuery({ queryKey: ['expenses'], queryFn: () => crmClient.expenses.list('-expense_date') });
+  const purchaseOrdersQuery = useQuery({ queryKey: ['purchase-orders'], queryFn: () => crmClient.purchases.list('-order_date') });
+  const sales = salesQuery.data ?? [];
+  const deals = dealsQuery.data ?? [];
+  const expenses = expensesQuery.data ?? [];
+  const purchaseOrders = purchaseOrdersQuery.data ?? [];
+  const loading = [salesQuery, dealsQuery, expensesQuery, purchaseOrdersQuery].some((query) => query.isPending);
 
   const expenseMutation = useMutation({
     mutationFn: ({ id, data }) => (id ? crmClient.expenses.update(id, data) : crmClient.expenses.create(data)),
@@ -44,11 +51,13 @@ export default function Accounting() {
       setExpenseDialogOpen(false);
       setEditingExpense(null);
     },
+    onError: (error) => toast({ title: 'Expense save failed', description: error.message, variant: 'destructive' }),
   });
 
   const deleteExpenseMutation = useMutation({
     mutationFn: (id) => crmClient.expenses.delete(id),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['expenses'] }),
+    onError: (error) => toast({ title: 'Expense deletion failed', description: error.message, variant: 'destructive' }),
   });
 
   const salesRevenue = sales.reduce((sum, sale) => sum + Number(sale.total_amount || 0), 0);
@@ -128,7 +137,7 @@ export default function Accounting() {
         }
       />
 
-      <div className="grid grid-cols-2 xl:grid-cols-6 gap-4 mb-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-6 gap-4 mb-6">
         {[
           { label: 'Total Revenue', value: formatMoney(totalRevenue), sub: 'CRM won deals + sales' },
           { label: 'Expense Run Rate', value: formatMoney(totalExpenses), sub: `${expenses.length} expense records` },
@@ -139,13 +148,29 @@ export default function Accounting() {
         ].map(({ label, value, sub, highlight }) => (
           <div key={label} className="bg-card rounded-xl border border-border p-5">
             <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">{label}</p>
-            <p className={cn('text-3xl font-bold', highlight || 'text-card-foreground')}>{value}</p>
-            <p className="text-xs text-muted-foreground mt-1.5">{sub}</p>
+            {loading ? (
+              <>
+                <Skeleton className="h-8 w-28 mb-2" />
+                <Skeleton className="h-3 w-36" />
+              </>
+            ) : (
+              <>
+                <p className={cn('text-3xl font-bold break-words', highlight || 'text-card-foreground')}>{value}</p>
+                <p className="text-xs text-muted-foreground mt-1.5">{sub}</p>
+              </>
+            )}
           </div>
         ))}
       </div>
 
-      {expenses.length === 0 && sales.length === 0 && deals.length === 0 && purchaseOrders.length === 0 ? (
+      {loading ? (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4" aria-busy="true" aria-live="polite">
+          <span className="sr-only">Loading accounting data</span>
+          <Skeleton className="h-[320px] rounded-xl" />
+          <Skeleton className="h-[320px] rounded-xl" />
+          <Skeleton className="h-[320px] rounded-xl lg:col-span-2" />
+        </div>
+      ) : expenses.length === 0 && sales.length === 0 && deals.length === 0 && purchaseOrders.length === 0 ? (
         <EmptyState icon={Landmark} title="No accounting data yet" description="Revenue, expenses, and procurement analytics will appear once transactions are recorded." actionLabel="Add Expense" onAction={() => setExpenseDialogOpen(true)} />
       ) : (
         <>
@@ -282,7 +307,7 @@ export default function Accounting() {
                         <td className="px-4 py-3 text-right">
                           <DropdownMenu>
                             <DropdownMenuTrigger asChild>
-                              <Button variant="ghost" size="icon" className="h-8 w-8"><MoreHorizontal className="w-4 h-4" /></Button>
+                              <Button variant="ghost" size="icon" className="h-8 w-8" aria-label={`Expense actions for ${expense.title || 'expense'}`}><MoreHorizontal className="w-4 h-4" aria-hidden="true" /></Button>
                             </DropdownMenuTrigger>
                             <DropdownMenuContent align="end">
                               <DropdownMenuItem onClick={() => { setEditingExpense(expense); setExpenseDialogOpen(true); }}>
@@ -308,6 +333,7 @@ export default function Accounting() {
         open={expenseDialogOpen}
         onOpenChange={setExpenseDialogOpen}
         expense={editingExpense}
+        isSaving={expenseMutation.isPending}
         onSave={(data) => expenseMutation.mutate({ id: editingExpense?.id, data })}
       />
     </div>

@@ -28,10 +28,11 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import QuoteFormDialog from '@/Components/sales/QuoteFormDialog';
-import OrderFormDialog from '@/Components/sales/OrderFormDialog';
-import PaymentFormDialog from '@/Components/sales/PaymentFormDialog';
+import QuoteFormDialog from '@/components/sales/QuoteFormDialog';
+import OrderFormDialog from '@/components/sales/OrderFormDialog';
+import PaymentFormDialog from '@/components/sales/PaymentFormDialog';
 import { toast } from '@/components/ui/use-toast';
+import { Skeleton } from '@/components/ui/skeleton';
 
 const tabs = ['Quotes', 'Orders', 'Payments'];
 
@@ -46,6 +47,18 @@ const statusBadge = (status) =>
           ? 'bg-red-50 text-red-700 border-red-200'
           : 'bg-slate-50 text-slate-600 border-slate-200'
   );
+
+function TableSkeletonRows({ columns, rows = 4 }) {
+  return Array.from({ length: rows }, (_, rowIndex) => (
+    <tr key={rowIndex} className="border-b border-border last:border-0">
+      {Array.from({ length: columns }, (_, colIndex) => (
+        <td key={colIndex} className="px-4 py-3">
+          <Skeleton className="h-4 w-full max-w-[120px]" />
+        </td>
+      ))}
+    </tr>
+  ));
+}
 
 const safeFmt = (dateStr) => {
   try {
@@ -68,10 +81,18 @@ export default function SalesHub() {
   const [editingOrder, setEditingOrder] = useState(null);
   const [editingPayment, setEditingPayment] = useState(null);
 
-  const { data: contacts = [] } = useQuery({ queryKey: ['contacts'], queryFn: () => crmClient.entities.Contact.list() });
-  const { data: quotes = [] } = useQuery({ queryKey: ['quotes'], queryFn: () => crmClient.quotes.list() });
-  const { data: orders = [] } = useQuery({ queryKey: ['sales-orders'], queryFn: () => crmClient.salesOrders.list() });
-  const { data: payments = [] } = useQuery({ queryKey: ['payments'], queryFn: () => crmClient.payments.list() });
+  const contactsQuery = useQuery({ queryKey: ['contacts'], queryFn: () => crmClient.entities.Contact.list() });
+  const quotesQuery = useQuery({ queryKey: ['quotes'], queryFn: () => crmClient.quotes.list() });
+  const ordersQuery = useQuery({ queryKey: ['sales-orders'], queryFn: () => crmClient.salesOrders.list() });
+  const paymentsQuery = useQuery({ queryKey: ['payments'], queryFn: () => crmClient.payments.list() });
+  const contacts = contactsQuery.data ?? [];
+  const quotes = quotesQuery.data ?? [];
+  const orders = ordersQuery.data ?? [];
+  const payments = paymentsQuery.data ?? [];
+  const quotesLoading = quotesQuery.isPending;
+  const ordersLoading = ordersQuery.isPending;
+  const paymentsLoading = paymentsQuery.isPending;
+  const summaryLoading = quotesLoading || ordersLoading || paymentsLoading;
   const orderPayments = useMemo(() => payments.filter((payment) => payment.reference_type !== 'sale'), [payments]);
 
   const quoteMutation = useMutation({
@@ -184,7 +205,7 @@ export default function SalesHub() {
         }
       />
 
-      <div className="grid grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
         {[
           { label: 'Quote Pipeline', value: formatMoney(quoteValue), sub: `${quotes.length} quotes created` },
           { label: 'Order Book', value: formatMoney(orderValue), sub: `${orders.length} orders recorded` },
@@ -193,13 +214,22 @@ export default function SalesHub() {
         ].map(({ label, value, sub, highlight }) => (
           <div key={label} className="bg-card rounded-xl border border-border p-5">
             <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">{label}</p>
-            <p className={cn('text-3xl font-bold', highlight || 'text-card-foreground')}>{value}</p>
-            <p className="text-xs text-muted-foreground mt-1.5">{sub}</p>
+            {summaryLoading ? (
+              <>
+                <Skeleton className="h-8 w-32 mb-2" />
+                <Skeleton className="h-3 w-40" />
+              </>
+            ) : (
+              <>
+                <p className={cn('text-3xl font-bold break-words', highlight || 'text-card-foreground')}>{value}</p>
+                <p className="text-xs text-muted-foreground mt-1.5">{sub}</p>
+              </>
+            )}
           </div>
         ))}
       </div>
 
-      <div className="flex gap-1 bg-card border border-border rounded-xl p-1 mb-5 w-fit">
+      <div className="flex max-w-full gap-1 overflow-x-auto bg-card border border-border rounded-xl p-1 mb-5 w-fit">
         {tabs.map((tab) => (
           <button
             key={tab}
@@ -256,7 +286,7 @@ export default function SalesHub() {
                     <td className="px-4 py-3 text-right">
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="icon" className="h-8 w-8"><MoreHorizontal className="w-4 h-4" /></Button>
+                          <Button variant="ghost" size="icon" className="h-8 w-8" aria-label={`Quote actions for ${quote.document_number || 'quote'}`}><MoreHorizontal className="w-4 h-4" aria-hidden="true" /></Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
                           <DropdownMenuItem onClick={() => { setEditingQuote(quote); setQuoteDialogOpen(true); }}>
@@ -289,7 +319,8 @@ export default function SalesHub() {
                     </td>
                   </tr>
                 ))}
-                {quotes.length === 0 && (
+                {quotesLoading && <TableSkeletonRows columns={7} />}
+                {!quotesLoading && quotes.length === 0 && (
                   <tr><td colSpan={7} className="px-4 py-10 text-sm text-muted-foreground text-center">No quotes yet - create your first proposal.</td></tr>
                 )}
               </tbody>
@@ -338,7 +369,7 @@ export default function SalesHub() {
                     <td className="px-4 py-3 text-right">
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="icon" className="h-8 w-8"><MoreHorizontal className="w-4 h-4" /></Button>
+                          <Button variant="ghost" size="icon" className="h-8 w-8" aria-label={`Order actions for ${order.document_number || 'order'}`}><MoreHorizontal className="w-4 h-4" aria-hidden="true" /></Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
                           <DropdownMenuItem onClick={() => { setEditingOrder(order); setOrderDialogOpen(true); }}>
@@ -366,7 +397,8 @@ export default function SalesHub() {
                     </td>
                   </tr>
                 ))}
-                {orders.length === 0 && (
+                {ordersLoading && <TableSkeletonRows columns={8} />}
+                {!ordersLoading && orders.length === 0 && (
                   <tr><td colSpan={8} className="px-4 py-10 text-sm text-muted-foreground text-center">No sales orders yet.</td></tr>
                 )}
               </tbody>
@@ -410,7 +442,7 @@ export default function SalesHub() {
                       <td className="px-4 py-3 text-right">
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
-                            <Button variant="ghost" size="icon" className="h-8 w-8"><MoreHorizontal className="w-4 h-4" /></Button>
+                            <Button variant="ghost" size="icon" className="h-8 w-8" aria-label={`Payment actions for ${payment.document_number || 'receipt'}`}><MoreHorizontal className="w-4 h-4" aria-hidden="true" /></Button>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end">
                             <DropdownMenuItem onClick={() => { setEditingPayment(payment); setPaymentDialogOpen(true); }}>
@@ -432,7 +464,8 @@ export default function SalesHub() {
                       </td>
                     </tr>
                   ))}
-                  {orderPayments.length === 0 && (
+                  {paymentsLoading && <TableSkeletonRows columns={6} />}
+                  {!paymentsLoading && orderPayments.length === 0 && (
                     <tr><td colSpan={6} className="px-4 py-10 text-sm text-muted-foreground text-center">No payments recorded yet.</td></tr>
                   )}
                 </tbody>
@@ -496,6 +529,7 @@ export default function SalesHub() {
         quote={editingQuote}
         contacts={contacts}
         defaultTaxRate={profile.taxRate}
+        isSaving={quoteMutation.isPending}
         onSave={(data) => quoteMutation.mutate({ id: editingQuote?.id, data })}
       />
       <OrderFormDialog
@@ -503,6 +537,7 @@ export default function SalesHub() {
         onOpenChange={setOrderDialogOpen}
         order={editingOrder}
         defaultTaxRate={profile.taxRate}
+        isSaving={orderMutation.isPending}
         onSave={(data) => orderMutation.mutate({ id: editingOrder?.id, data })}
       />
       <PaymentFormDialog
@@ -510,6 +545,7 @@ export default function SalesHub() {
         onOpenChange={setPaymentDialogOpen}
         payment={editingPayment}
         orders={orders}
+        isSaving={paymentMutation.isPending}
         onSave={(data) => paymentMutation.mutate({ id: editingPayment?.id, data })}
       />
     </div>

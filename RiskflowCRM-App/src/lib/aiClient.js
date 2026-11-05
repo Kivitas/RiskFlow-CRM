@@ -1,5 +1,7 @@
 import { crmClient } from '@/api/crmClient';
 
+const REQUEST_TIMEOUT_MS = 60000;
+
 const PROVIDER_CONFIG = {
   openai: {
     keyField: 'openaiApiKey',
@@ -24,9 +26,18 @@ const PROVIDER_CONFIG = {
 const toTrimmed = (value) => String(value || '').trim();
 const toLower = (value) => String(value || '').trim().toLowerCase();
 
+const isKnownProvider = (provider) => Object.prototype.hasOwnProperty.call(PROVIDER_CONFIG, provider);
+
+const unsupportedProviderError = (provider) =>
+  new Error(`Unsupported AI provider "${provider}". Choose OpenAI, Anthropic or Gemini in Settings.`);
+
 export const getAiProviderConfig = (profile) => {
   const provider = profile.aiProvider || 'openai';
-  const meta = PROVIDER_CONFIG[provider] || PROVIDER_CONFIG.openai;
+  if (!isKnownProvider(provider)) {
+    // Unknown provider: never borrow another vendor's key or model.
+    return { provider, label: String(provider), apiKey: '', model: '' };
+  }
+  const meta = PROVIDER_CONFIG[provider];
   return {
     provider,
     label: meta.label,
@@ -147,54 +158,122 @@ const normalizeMessages = (messages) =>
     }))
     .filter((message) => message.content);
 
-async function callOpenAI({ apiKey, model, systemPrompt, messages }) {
-  const response = await fetch('https://api.openai.com/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify({
-      model,
-      temperature: 0.7,
-      messages: [
-        { role: 'system', content: systemPrompt },
-        ...messages,
-      ],
-    }),
-  });
+// Removes every occurrence of the API key from text that may be shown to the user.
+const redactKey = (text, apiKey) => {
+  const value = String(text ?? '');
+  return apiKey ? value.split(apiKey).join('[redacted]') : value;
+};
 
-  const data = await response.json();
-  if (!response.ok) {
-    throw new Error(data?.error?.message || 'OpenAI request failed');
+const friendlyProviderError = ({ label, status, providerMessage, apiKey }) => {
+  if (status === 401 || status === 403) {
+    return 'Invalid API key';
   }
+  if (status === 429) {
+    return 'Rate limited, try again shortly';
+  }
+  const detail = redactKey(providerMessage, apiKey).trim();
+  if (detail) {
+    return `${label} error (${status}): ${detail.slice(0, 300)}`;
+  }
+  return `${label} request failed with status ${status}.`;
+};
+
+// Shared request helper: enforces a timeout, tolerates non-JSON bodies and
+// never includes the API key in any thrown message.
+async function requestProvider({ label, url, init, apiKey }) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+
+  try {
+    // Only the fetch() call is mapped to network-level errors; anything thrown
+    // elsewhere (programming errors, body parsing) is passed through unchanged.
+    let response;
+    try {
+      response = await fetch(url, { ...init, signal: controller.signal });
+    } catch (error) {
+      if (error?.name === 'AbortError') {
+        throw new Error(`${label} did not respond within 60 seconds. Try again.`);
+      }
+      if (error instanceof TypeError) {
+        throw new Error(`Could not reach ${label}. Check your connection and try again.`);
+      }
+      throw error;
+    }
+
+    const text = await response.text();
+
+    let data = null;
+    try {
+      data = text ? JSON.parse(text) : null;
+    } catch {
+      data = null; // Non-JSON body (e.g. an HTML gateway page); handled below.
+    }
+
+    if (!response.ok) {
+      const providerMessage = typeof data?.error === 'string' ? data.error : data?.error?.message;
+      throw new Error(friendlyProviderError({ label, status: response.status, providerMessage, apiKey }));
+    }
+
+    if (!data || typeof data !== 'object') {
+      throw new Error(`${label} returned an unreadable response. Try again.`);
+    }
+
+    return data;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function callOpenAI({ apiKey, model, systemPrompt, messages }) {
+  const data = await requestProvider({
+    label: 'OpenAI',
+    apiKey,
+    url: 'https://api.openai.com/v1/chat/completions',
+    init: {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model,
+        temperature: 0.7,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          ...messages,
+        ],
+      }),
+    },
+  });
 
   return data?.choices?.[0]?.message?.content?.trim() || 'No response returned.';
 }
 
 async function callAnthropic({ apiKey, model, systemPrompt, messages }) {
-  const response = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': apiKey,
-      'anthropic-version': '2023-06-01',
+  const data = await requestProvider({
+    label: 'Anthropic',
+    apiKey,
+    url: 'https://api.anthropic.com/v1/messages',
+    init: {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+        // Required for direct calls from a browser; the key is user-supplied and stored locally.
+        'anthropic-dangerous-direct-browser-access': 'true',
+      },
+      body: JSON.stringify({
+        model,
+        max_tokens: 1024,
+        system: systemPrompt,
+        messages: messages.map((message) => ({
+          role: message.role,
+          content: [{ type: 'text', text: message.content }],
+        })),
+      }),
     },
-    body: JSON.stringify({
-      model,
-      max_tokens: 1024,
-      system: systemPrompt,
-      messages: messages.map((message) => ({
-        role: message.role,
-        content: [{ type: 'text', text: message.content }],
-      })),
-    }),
   });
-
-  const data = await response.json();
-  if (!response.ok) {
-    throw new Error(data?.error?.message || 'Anthropic request failed');
-  }
 
   return (data?.content || [])
     .map((part) => part?.text || '')
@@ -203,29 +282,30 @@ async function callAnthropic({ apiKey, model, systemPrompt, messages }) {
 }
 
 async function callGemini({ apiKey, model, systemPrompt, messages }) {
-  const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
+  const data = await requestProvider({
+    label: 'Google Gemini',
+    apiKey,
+    url: `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`,
+    init: {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-goog-api-key': apiKey,
+      },
+      body: JSON.stringify({
+        systemInstruction: {
+          parts: [{ text: systemPrompt }],
+        },
+        contents: messages.map((message) => ({
+          role: message.role === 'assistant' ? 'model' : 'user',
+          parts: [{ text: message.content }],
+        })),
+        generationConfig: {
+          temperature: 0.7,
+        },
+      }),
     },
-    body: JSON.stringify({
-      systemInstruction: {
-        parts: [{ text: systemPrompt }],
-      },
-      contents: messages.map((message) => ({
-        role: message.role === 'assistant' ? 'model' : 'user',
-        parts: [{ text: message.content }],
-      })),
-      generationConfig: {
-        temperature: 0.7,
-      },
-    }),
   });
-
-  const data = await response.json();
-  if (!response.ok) {
-    throw new Error(data?.error?.message || 'Gemini request failed');
-  }
 
   return (data?.candidates?.[0]?.content?.parts || [])
     .map((part) => part?.text || '')
@@ -235,6 +315,10 @@ async function callGemini({ apiKey, model, systemPrompt, messages }) {
 
 export async function sendAiMessage({ profile, currencyInfo, mode, messages }) {
   const providerConfig = getAiProviderConfig(profile);
+  const { provider } = providerConfig;
+  if (!isKnownProvider(provider)) {
+    throw unsupportedProviderError(provider);
+  }
   if (!providerConfig.apiKey) {
     throw new Error(`Add a ${providerConfig.label} API key in Settings before using chat.`);
   }
@@ -244,28 +328,26 @@ export async function sendAiMessage({ profile, currencyInfo, mode, messages }) {
     ? buildFocusSystemPrompt(await buildWorkspaceSnapshot(profile, currencyInfo))
     : buildGeneralSystemPrompt(profile);
 
+  const request = {
+    apiKey: providerConfig.apiKey,
+    model: providerConfig.model,
+    systemPrompt,
+    messages: normalizedMessages,
+  };
+
   let content = '';
-  if (providerConfig.provider === 'openai') {
-    content = await callOpenAI({
-      apiKey: providerConfig.apiKey,
-      model: providerConfig.model,
-      systemPrompt,
-      messages: normalizedMessages,
-    });
-  } else if (providerConfig.provider === 'anthropic') {
-    content = await callAnthropic({
-      apiKey: providerConfig.apiKey,
-      model: providerConfig.model,
-      systemPrompt,
-      messages: normalizedMessages,
-    });
-  } else {
-    content = await callGemini({
-      apiKey: providerConfig.apiKey,
-      model: providerConfig.model,
-      systemPrompt,
-      messages: normalizedMessages,
-    });
+  switch (provider) {
+    case 'openai':
+      content = await callOpenAI(request);
+      break;
+    case 'anthropic':
+      content = await callAnthropic(request);
+      break;
+    case 'gemini':
+      content = await callGemini(request);
+      break;
+    default:
+      throw unsupportedProviderError(provider);
   }
 
   const promptChars = systemPrompt.length + normalizedMessages.reduce((sum, message) => sum + message.content.length, 0);

@@ -1,5 +1,6 @@
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import { roundMoney } from '@/lib/money';
 
 const money = (value, currencyInfo) => {
   const amount = Number(value || 0);
@@ -217,8 +218,8 @@ export const generateDealInvoicePdf = ({ profile, deal, currencyInfo, convertAmo
   const convert = convertAmount || ((value) => value);
   const fmt = (value) => money(convert(value), currencyInfo);
   const total = Number(deal.value || 0);
-  const subtotal = total / (1 + Number(profile.taxRate || 0) / 100 || 1);
-  const taxAmount = total - subtotal;
+  const subtotal = roundMoney(total / (1 + Number(profile.taxRate || 0) / 100));
+  const taxAmount = roundMoney(total - subtotal);
 
   buildInvoice({
     profile,
@@ -245,13 +246,37 @@ export const generateDealInvoicePdf = ({ profile, deal, currencyInfo, convertAmo
   });
 };
 
+const isPresent = (value) => value !== undefined && value !== null && value !== '';
+
+// Works out subtotal, tax and grand total for a sale. The grand total is always total_amount
+// (tax-inclusive) when it is stored, so tax is never added on top of an amount that already includes it.
+const deriveSaleAmounts = (sale, taxRate) => {
+  if (isPresent(sale.subtotal)) {
+    const subtotal = roundMoney(sale.subtotal);
+    const taxAmount = isPresent(sale.tax_amount)
+      ? roundMoney(sale.tax_amount)
+      : roundMoney((subtotal * taxRate) / 100);
+    const total = isPresent(sale.total_amount) ? roundMoney(sale.total_amount) : roundMoney(subtotal + taxAmount);
+    return { subtotal, taxAmount, total };
+  }
+
+  const total = isPresent(sale.total_amount) ? roundMoney(sale.total_amount) : 0;
+  if (isPresent(sale.tax_amount)) {
+    const taxAmount = roundMoney(sale.tax_amount);
+    return { subtotal: roundMoney(total - taxAmount), taxAmount, total };
+  }
+  if (taxRate > 0) {
+    const subtotal = roundMoney(total / (1 + taxRate / 100));
+    return { subtotal, taxAmount: roundMoney(total - subtotal), total };
+  }
+  return { subtotal: total, taxAmount: 0, total };
+};
+
 export const generateSaleInvoicePdf = ({ profile, sale, currencyInfo, convertAmount }) => {
   const convert = convertAmount || ((value) => value);
   const fmt = (value) => money(convert(value), currencyInfo);
-  const subtotal = Number(sale.subtotal || sale.total_amount || 0);
   const taxRate = Number(sale.tax_rate ?? profile.taxRate ?? 0);
-  const taxAmount = Number(sale.tax_amount ?? ((subtotal * taxRate) / 100));
-  const total = Number(sale.total_amount || subtotal + taxAmount);
+  const { subtotal, taxAmount, total } = deriveSaleAmounts(sale, taxRate);
 
   buildInvoice({
     profile,

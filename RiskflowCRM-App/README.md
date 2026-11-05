@@ -4,7 +4,7 @@ RiskFlow CRM is a local-first business management workspace for CRM, sales, inve
 
 ## Run
 
-Unsigned launchers are built locally. From the project root, use `installation.md` to create `Riskflow.bat` or `Riskflow.exe`, then run the new launcher.
+Requires Node.js 20 or newer. From the project root run `npm install`, then `npm run dev -- --host 127.0.0.1 --port 5173 --strictPort` and open http://127.0.0.1:5173. On Windows you can instead run `scripts\start-riskflow.ps1`. See `HOW TO RUN.md` for details.
 
 ## Features
 
@@ -39,7 +39,7 @@ npm run build
 
 ## Storage
 
-The app stores workspace data in the browser for the local URL it is opened on. The local launcher opens `http://127.0.0.1:5173`, keeping data on one browser origin.
+The app stores workspace data in the browser for the local URL it is opened on. Always use `http://127.0.0.1:5173`, so data stays on one browser origin.
 
 ## License
 

@@ -11,14 +11,15 @@ import {
   AlertTriangle, Bell, Building2, Download, LockKeyhole,
   Plus, ShieldCheck, Upload, CheckCircle, XCircle,
 } from 'lucide-react';
-import UserFormDialog from '@/Components/workspace/UserFormDialog';
-import WarehouseFormDialog from '@/Components/workspace/WarehouseFormDialog';
-import StockAdjustmentDialog from '@/Components/workspace/StockAdjustmentDialog';
+import UserFormDialog from '@/components/workspace/UserFormDialog';
+import WarehouseFormDialog from '@/components/workspace/WarehouseFormDialog';
+import StockAdjustmentDialog from '@/components/workspace/StockAdjustmentDialog';
 import { useBusiness } from '@/lib/BusinessContext';
 import { useConfirm } from '@/lib/ConfirmContext';
 import { useAuth } from '@/lib/AuthContext';
 import { useCurrency } from '@/lib/CurrencyContext';
 import { toast } from '@/components/ui/use-toast';
+import { Skeleton } from '@/components/ui/skeleton';
 
 const tabs = ['Team', 'Approvals', 'Warehouses', 'Activity', 'Backup'];
 
@@ -51,13 +52,26 @@ export default function Workspace() {
   const [editingWarehouse, setEditingWarehouse] = useState(null);
   const [notifSearch, setNotifSearch] = useState('');
 
-  const { data: appUsers = [] } = useQuery({ queryKey: ['app-users'], queryFn: () => crmClient.users.list() });
-  const { data: approvals = [] } = useQuery({ queryKey: ['approvals'], queryFn: () => crmClient.approvals.list() });
-  const { data: warehouses = [] } = useQuery({ queryKey: ['warehouses'], queryFn: () => crmClient.warehouses.list() });
-  const { data: products = [] } = useQuery({ queryKey: ['products'], queryFn: () => crmClient.products.list() });
-  const { data: adjustments = [] } = useQuery({ queryKey: ['stock-adjustments'], queryFn: () => crmClient.stockAdjustments.list() });
-  const { data: notifications = [] } = useQuery({ queryKey: ['notifications'], queryFn: () => crmClient.notifications.list() });
-  const { data: auditLogs = [] } = useQuery({ queryKey: ['audit'], queryFn: () => crmClient.audit.list() });
+  const usersQuery = useQuery({ queryKey: ['app-users'], queryFn: () => crmClient.users.list() });
+  const approvalsQuery = useQuery({ queryKey: ['approvals'], queryFn: () => crmClient.approvals.list() });
+  const warehousesQuery = useQuery({ queryKey: ['warehouses'], queryFn: () => crmClient.warehouses.list() });
+  const productsQuery = useQuery({ queryKey: ['products'], queryFn: () => crmClient.products.list() });
+  const adjustmentsQuery = useQuery({ queryKey: ['stock-adjustments'], queryFn: () => crmClient.stockAdjustments.list() });
+  const notificationsQuery = useQuery({ queryKey: ['notifications'], queryFn: () => crmClient.notifications.list() });
+  const auditQuery = useQuery({ queryKey: ['audit'], queryFn: () => crmClient.audit.list() });
+  const appUsers = usersQuery.data ?? [];
+  const approvals = approvalsQuery.data ?? [];
+  const warehouses = warehousesQuery.data ?? [];
+  const products = productsQuery.data ?? [];
+  const adjustments = adjustmentsQuery.data ?? [];
+  const notifications = notificationsQuery.data ?? [];
+  const auditLogs = auditQuery.data ?? [];
+  const usersLoading = usersQuery.isPending;
+  const approvalsLoading = approvalsQuery.isPending;
+  const warehousesLoading = warehousesQuery.isPending;
+  const adjustmentsLoading = adjustmentsQuery.isPending;
+  const auditLoading = auditQuery.isPending;
+  const summaryLoading = usersQuery.isPending || approvalsQuery.isPending || warehousesQuery.isPending || productsQuery.isPending || notificationsQuery.isPending;
 
   const userMutation = useMutation({
     mutationFn: ({ id, data }) => (id ? crmClient.users.update(id, data) : crmClient.users.create(data)),
@@ -106,14 +120,18 @@ export default function Workspace() {
       qc.invalidateQueries({ queryKey: ['expenses'] });
       qc.invalidateQueries({ queryKey: ['purchase-orders'] });
       qc.invalidateQueries({ queryKey: ['quotes'] });
+      // Approving a received purchase order moves stock, so product quantities must refresh too.
+      qc.invalidateQueries({ queryKey: ['products'] });
       qc.invalidateQueries({ queryKey: ['notifications'] });
       qc.invalidateQueries({ queryKey: ['audit'] });
     },
+    onError: (error) => toast({ title: 'Approval decision failed', description: error.message, variant: 'destructive' }),
   });
 
   const markReadMutation = useMutation({
     mutationFn: (id) => crmClient.notifications.markRead(id),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['notifications'] }),
+    onError: (error) => toast({ title: 'Could not mark alert as read', description: error.message, variant: 'destructive' }),
   });
 
   const filteredUsers = useMemo(
@@ -132,14 +150,18 @@ export default function Workspace() {
   const unreadNotifs = notifications.filter((n) => !n.read).length;
 
   const handleExport = async () => {
-    const snapshot = await crmClient.backups.exportAll();
-    const blob = new Blob([JSON.stringify(snapshot, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${profile.companyName || 'workspace'}-backup-${new Date().toISOString().slice(0, 10)}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
+    try {
+      const snapshot = await crmClient.backups.exportAll();
+      const blob = new Blob([JSON.stringify(snapshot, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${profile.companyName || 'workspace'}-backup-${new Date().toISOString().slice(0, 10)}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      toast({ title: 'Backup export failed', description: error.message || 'Could not build the backup file.', variant: 'destructive' });
+    }
   };
 
   const handleImport = async (event) => {
@@ -165,7 +187,7 @@ export default function Workspace() {
         subtitle={`${profile.companyName || 'Your business'} admin console for access, approvals, stock governance, and backup management`}
       />
 
-      <div className="grid grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
         {[
           { label: 'Team Members', value: appUsers.length, sub: `${appUsers.filter(u => u.status === 'active').length} active accounts` },
           { label: 'Open Approvals', value: pendingApprovals.length, sub: 'Quotes, purchases, and expenses awaiting review', highlight: pendingApprovals.length > 0 ? 'text-amber-600' : undefined },
@@ -174,8 +196,17 @@ export default function Workspace() {
         ].map(({ label, value, sub, highlight }) => (
           <div key={label} className="bg-card rounded-xl border border-border p-5">
             <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">{label}</p>
-            <p className={cn('text-3xl font-bold', highlight || 'text-card-foreground')}>{value}</p>
-            <p className="text-xs text-muted-foreground mt-1.5">{sub}</p>
+            {summaryLoading ? (
+              <>
+                <Skeleton className="h-8 w-20 mb-2" />
+                <Skeleton className="h-3 w-40" />
+              </>
+            ) : (
+              <>
+                <p className={cn('text-3xl font-bold', highlight || 'text-card-foreground')}>{value}</p>
+                <p className="text-xs text-muted-foreground mt-1.5">{sub}</p>
+              </>
+            )}
           </div>
         ))}
       </div>
@@ -207,7 +238,7 @@ export default function Workspace() {
               <p className="text-xs text-muted-foreground mt-0.5">Separate logins, permissions, and status control for each team member</p>
             </div>
             <div className="flex gap-2">
-              <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search team..." className="w-56" />
+              <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search team..." aria-label="Search team members" className="w-full sm:w-56" />
               <Button onClick={() => { setEditingUser(null); setUserDialogOpen(true); }}>
                 <Plus className="w-4 h-4 mr-2" />Add User
               </Button>
@@ -260,7 +291,14 @@ export default function Workspace() {
                     </td>
                   </tr>
                 ))}
-                {filteredUsers.length === 0 && (
+                {usersLoading && Array.from({ length: 4 }, (_, rowIndex) => (
+                  <tr key={`skeleton-${rowIndex}`} className="border-b border-border last:border-0">
+                    {Array.from({ length: 5 }, (_, colIndex) => (
+                      <td key={colIndex} className="px-4 py-3"><Skeleton className="h-4 w-full max-w-[120px]" /></td>
+                    ))}
+                  </tr>
+                ))}
+                {!usersLoading && filteredUsers.length === 0 && (
                   <tr><td colSpan={5} className="px-4 py-8 text-sm text-muted-foreground text-center">No users found.</td></tr>
                 )}
               </tbody>
@@ -278,7 +316,10 @@ export default function Workspace() {
               <p className="text-xs text-muted-foreground mt-0.5">Threshold-based approvals for quotes, purchases, and expenses</p>
             </div>
             <div className="divide-y divide-border">
-              {approvals.length === 0 && (
+              {approvalsLoading && (
+                <div className="space-y-3 p-4" aria-busy="true"><Skeleton className="h-16 w-full" /><Skeleton className="h-16 w-full" /></div>
+              )}
+              {!approvalsLoading && approvals.length === 0 && (
                 <div className="p-6 text-sm text-muted-foreground text-center">No approval requests yet.</div>
               )}
               {approvals.map((approval) => (
@@ -306,6 +347,7 @@ export default function Workspace() {
                       <Button
                         size="sm"
                         className="bg-emerald-600 hover:bg-emerald-700 text-white"
+                        disabled={approvalMutation.isPending}
                         onClick={() => approvalMutation.mutate({ id: approval.id, decision: 'approved' })}
                       >
                         <CheckCircle className="w-3.5 h-3.5 mr-1" />Approve
@@ -314,6 +356,7 @@ export default function Workspace() {
                         size="sm"
                         variant="outline"
                         className="border-destructive text-destructive hover:bg-destructive/5"
+                        disabled={approvalMutation.isPending}
                         onClick={() => approvalMutation.mutate({ id: approval.id, decision: 'rejected' })}
                       >
                         <XCircle className="w-3.5 h-3.5 mr-1" />Reject
@@ -335,6 +378,7 @@ export default function Workspace() {
                     value={notifSearch}
                     onChange={(e) => setNotifSearch(e.target.value)}
                     placeholder="Filter..."
+                    aria-label="Filter role alerts"
                     className="h-7 text-xs w-32"
                   />
                 </div>
@@ -387,14 +431,17 @@ export default function Workspace() {
                 <h3 className="text-sm font-semibold text-card-foreground">Warehouse Directory</h3>
               </div>
               <div className="divide-y divide-border">
+                {warehousesLoading && (
+                  <div className="space-y-3 p-4" aria-busy="true"><Skeleton className="h-14 w-full" /><Skeleton className="h-14 w-full" /></div>
+                )}
                 {warehouses.map((wh) => (
-                  <div key={wh.id} className="p-4 flex items-center justify-between gap-3">
+                  <div key={wh.id} className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                     <div>
                       <p className="text-sm font-semibold text-card-foreground">{wh.name}</p>
                       <p className="text-xs text-muted-foreground">{wh.code} | {wh.location || 'No location set'}</p>
                       {wh.manager_name && <p className="text-xs text-muted-foreground">Manager: {wh.manager_name}</p>}
                     </div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
                       <Badge variant="outline" className={statusBadge(wh.status)}>{wh.status}</Badge>
                       <Button variant="outline" size="sm" onClick={() => { setEditingWarehouse(wh); setWarehouseDialogOpen(true); }}>Edit</Button>
                       <Button variant="ghost" size="sm" className="text-destructive" onClick={async () => {
@@ -417,7 +464,10 @@ export default function Workspace() {
                 <h3 className="text-sm font-semibold text-card-foreground">Recent Stock Adjustments</h3>
               </div>
               <div className="divide-y divide-border">
-                {adjustments.length === 0 && (
+                {adjustmentsLoading && (
+                  <div className="space-y-3 p-4" aria-busy="true"><Skeleton className="h-12 w-full" /><Skeleton className="h-12 w-full" /></div>
+                )}
+                {!adjustmentsLoading && adjustments.length === 0 && (
                   <div className="p-6 text-sm text-muted-foreground text-center">No stock adjustments yet.</div>
                 )}
                 {adjustments.slice(0, 10).map((adj) => (
@@ -448,7 +498,10 @@ export default function Workspace() {
               <p className="text-xs text-muted-foreground mt-0.5">Complete record of who changed what and when</p>
             </div>
             <div className="divide-y divide-border max-h-[600px] overflow-y-auto">
-              {auditLogs.length === 0 && (
+              {auditLoading && (
+                <div className="space-y-3 p-4" aria-busy="true"><Skeleton className="h-12 w-full" /><Skeleton className="h-12 w-full" /><Skeleton className="h-12 w-full" /></div>
+              )}
+              {!auditLoading && auditLogs.length === 0 && (
                 <div className="p-6 text-sm text-muted-foreground text-center">No activity yet.</div>
               )}
               {auditLogs.slice(0, 100).map((log) => (
@@ -532,18 +585,21 @@ export default function Workspace() {
         open={userDialogOpen}
         onOpenChange={setUserDialogOpen}
         user={editingUser}
+        isSaving={userMutation.isPending}
         onSave={(data) => userMutation.mutate({ id: editingUser?.id, data })}
       />
       <WarehouseFormDialog
         open={warehouseDialogOpen}
         onOpenChange={setWarehouseDialogOpen}
         warehouse={editingWarehouse}
+        isSaving={warehouseMutation.isPending}
         onSave={(data) => warehouseMutation.mutate({ id: editingWarehouse?.id, data })}
       />
       <StockAdjustmentDialog
         open={adjustmentDialogOpen}
         onOpenChange={setAdjustmentDialogOpen}
         products={products}
+        isSaving={adjustmentMutation.isPending}
         onSave={(data) => adjustmentMutation.mutate(data)}
       />
     </div>

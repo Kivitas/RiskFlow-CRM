@@ -12,11 +12,13 @@ import {
   YAxis,
 } from 'recharts';
 import {
+  endOfDay,
   endOfMonth,
   format,
   isAfter,
   isBefore,
   parseISO,
+  startOfDay,
   startOfMonth,
   subDays,
   subMonths,
@@ -44,6 +46,7 @@ import { useAuth } from '@/lib/AuthContext';
 import { useBusiness } from '@/lib/BusinessContext';
 import { SUPPORTED_CURRENCIES, useCurrency } from '@/lib/CurrencyContext';
 import { Button } from '@/components/ui/button';
+import { Skeleton } from '@/components/ui/skeleton';
 import { cn } from '@/lib/utils';
 
 const CHART_COLORS = {
@@ -74,13 +77,22 @@ const isWithinRange = (value, start, end) => {
   return !isBefore(date, start) && !isAfter(date, end);
 };
 
-const sumBy = (items, picker) => items.reduce((sum, item) => sum + Number(picker(item) || 0), 0);
+// Non-numeric values (including NaN from text like "abc") count as 0 so totals never become NaN.
+const toNumber = (value) => {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : 0;
+};
+
+const sumBy = (items, picker) => items.reduce((sum, item) => sum + toNumber(picker(item)), 0);
 
 const trendMeta = (current, previous) => {
   if (!previous) {
     return { value: current > 0 ? 100 : 0, positive: current >= 0 };
   }
-  const delta = ((current - previous) / previous) * 100;
+  const delta = ((current - previous) / Math.abs(previous)) * 100;
+  if (!Number.isFinite(delta)) {
+    return { value: 0, positive: true };
+  }
   return { value: Math.abs(delta), positive: delta >= 0 };
 };
 
@@ -101,7 +113,12 @@ function MiniSparkline({ data, color }) {
     .join(' ');
 
   return (
-    <svg viewBox="0 0 100 100" className="h-12 w-full overflow-visible">
+    <svg
+      viewBox="0 0 100 100"
+      role="img"
+      aria-label={`Trend over six months, latest value ${data[data.length - 1]}`}
+      className="h-12 w-full overflow-visible"
+    >
       <defs>
         <linearGradient id={`spark-${color.replace('#', '')}`} x1="0" y1="0" x2="0" y2="1">
           <stop offset="0%" stopColor={color} stopOpacity="0.18" />
@@ -120,12 +137,13 @@ function MiniSparkline({ data, color }) {
   );
 }
 
-function HeaderControl({ children, className = '', onClick, disabled = false }) {
+function HeaderControl({ children, className = '', onClick, disabled = false, ...rest }) {
   return (
     <button
       type="button"
       onClick={onClick}
       disabled={disabled}
+      {...rest}
       className={cn(
         'inline-flex h-11 items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-medium text-slate-700 shadow-sm transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60',
         className
@@ -138,7 +156,7 @@ function HeaderControl({ children, className = '', onClick, disabled = false }) 
 
 function HeroMetric({ icon: Icon, label, value, trend, trendPositive, spark, color }) {
   return (
-    <div className="grid grid-cols-[44px_1fr_140px] items-center gap-4 border-b border-slate-100 py-3 last:border-b-0">
+    <div className="grid grid-cols-[44px_1fr] items-center gap-4 border-b border-slate-100 py-3 last:border-b-0 sm:grid-cols-[44px_1fr_140px]">
       <div className="flex h-11 w-11 items-center justify-center rounded-2xl" style={{ backgroundColor: `${color}18` }}>
         <Icon className="h-5 w-5" style={{ color }} />
       </div>
@@ -151,7 +169,42 @@ function HeroMetric({ icon: Icon, label, value, trend, trendPositive, spark, col
           </span>
         </div>
       </div>
-      <MiniSparkline data={spark} color={color} />
+      <div className="col-span-2 sm:col-span-1">
+        <MiniSparkline data={spark} color={color} />
+      </div>
+    </div>
+  );
+}
+
+function DashboardSkeleton() {
+  return (
+    <div className="space-y-6" aria-busy="true" aria-live="polite">
+      <span className="sr-only">Loading dashboard</span>
+      <section className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+        <div className="space-y-3">
+          <Skeleton className="h-9 w-48 rounded-xl" />
+          <Skeleton className="h-4 w-72 rounded-lg" />
+        </div>
+        <div className="flex flex-wrap gap-3">
+          <Skeleton className="h-11 w-36 rounded-xl" />
+          <Skeleton className="h-11 w-28 rounded-xl" />
+          <Skeleton className="h-11 w-11 rounded-xl" />
+        </div>
+      </section>
+      <section className="grid gap-5 xl:grid-cols-[1.45fr_0.9fr]">
+        <Skeleton className="h-64 rounded-[32px]" />
+        <Skeleton className="h-64 rounded-[32px]" />
+      </section>
+      <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-6">
+        {Array.from({ length: 6 }, (_, index) => (
+          <Skeleton key={index} className="h-48 rounded-[26px]" />
+        ))}
+      </section>
+      <section className="grid gap-5 xl:grid-cols-[1.1fr_1fr_0.8fr]">
+        <Skeleton className="h-[340px] rounded-[28px]" />
+        <Skeleton className="h-[340px] rounded-[28px]" />
+        <Skeleton className="h-[340px] rounded-[28px]" />
+      </section>
     </div>
   );
 }
@@ -272,24 +325,46 @@ export default function Dashboard() {
     formatConvertedMoney,
   } = useCurrency();
 
-  const { data: contacts = [] } = useQuery({ queryKey: ['contacts'], queryFn: () => crmClient.entities.Contact.list() });
-  const { data: deals = [] } = useQuery({ queryKey: ['deals'], queryFn: () => crmClient.entities.Deal.list() });
-  const { data: risks = [] } = useQuery({ queryKey: ['risks'], queryFn: () => crmClient.entities.RiskAssessment.list() });
-  const { data: activities = [] } = useQuery({ queryKey: ['activities'], queryFn: () => crmClient.entities.Activity.list('-created_date', 8) });
-  const { data: onboarding = [] } = useQuery({ queryKey: ['onboarding'], queryFn: () => crmClient.entities.OnboardingClient.list() });
-  const { data: products = [] } = useQuery({ queryKey: ['products'], queryFn: () => crmClient.products.list() });
-  const { data: sales = [] } = useQuery({ queryKey: ['sales'], queryFn: () => crmClient.sales.list('-sale_date', 100) });
-  const { data: purchaseOrders = [] } = useQuery({ queryKey: ['purchase-orders'], queryFn: () => crmClient.purchases.list('-order_date', 100) });
-  const { data: expenses = [] } = useQuery({ queryKey: ['expenses'], queryFn: () => crmClient.expenses.list('-expense_date', 100) });
-  const { data: quotes = [] } = useQuery({ queryKey: ['quotes'], queryFn: () => crmClient.quotes.list('-quote_date', 100) });
-  const { data: salesOrders = [] } = useQuery({ queryKey: ['sales-orders'], queryFn: () => crmClient.salesOrders.list('-order_date', 100) });
-  const { data: payments = [] } = useQuery({ queryKey: ['payments'], queryFn: () => crmClient.payments.list('-payment_date', 100) });
-  const { data: approvals = [] } = useQuery({ queryKey: ['approvals'], queryFn: () => crmClient.approvals.list('-created_date', 50) });
+  const contactsQuery = useQuery({ queryKey: ['contacts'], queryFn: () => crmClient.entities.Contact.list() });
+  const dealsQuery = useQuery({ queryKey: ['deals'], queryFn: () => crmClient.entities.Deal.list() });
+  const risksQuery = useQuery({ queryKey: ['risks'], queryFn: () => crmClient.entities.RiskAssessment.list() });
+  const activitiesQuery = useQuery({ queryKey: ['activities'], queryFn: () => crmClient.entities.Activity.list('-created_date', 8) });
+  const onboardingQuery = useQuery({ queryKey: ['onboarding'], queryFn: () => crmClient.entities.OnboardingClient.list() });
+  const productsQuery = useQuery({ queryKey: ['products'], queryFn: () => crmClient.products.list() });
+  const salesQuery = useQuery({ queryKey: ['sales'], queryFn: () => crmClient.sales.list('-sale_date', 100) });
+  const purchaseOrdersQuery = useQuery({ queryKey: ['purchase-orders'], queryFn: () => crmClient.purchases.list('-order_date', 100) });
+  const expensesQuery = useQuery({ queryKey: ['expenses'], queryFn: () => crmClient.expenses.list('-expense_date', 100) });
+  const quotesQuery = useQuery({ queryKey: ['quotes'], queryFn: () => crmClient.quotes.list('-quote_date', 100) });
+  const salesOrdersQuery = useQuery({ queryKey: ['sales-orders'], queryFn: () => crmClient.salesOrders.list('-order_date', 100) });
+  const paymentsQuery = useQuery({ queryKey: ['payments'], queryFn: () => crmClient.payments.list('-payment_date', 100) });
+  const approvalsQuery = useQuery({ queryKey: ['approvals'], queryFn: () => crmClient.approvals.list('-created_date', 50) });
+
+  const contacts = contactsQuery.data ?? [];
+  const deals = dealsQuery.data ?? [];
+  const risks = risksQuery.data ?? [];
+  const activities = activitiesQuery.data ?? [];
+  const onboarding = onboardingQuery.data ?? [];
+  const products = productsQuery.data ?? [];
+  const sales = salesQuery.data ?? [];
+  const purchaseOrders = purchaseOrdersQuery.data ?? [];
+  const expenses = expensesQuery.data ?? [];
+  const quotes = quotesQuery.data ?? [];
+  const salesOrders = salesOrdersQuery.data ?? [];
+  const payments = paymentsQuery.data ?? [];
+  const approvals = approvalsQuery.data ?? [];
+
+  // Skeletons stay up until the primary datasets have loaded, so the page never flashes zeros.
+  const primaryLoading = [contactsQuery, dealsQuery, salesQuery, expensesQuery, productsQuery].some(
+    (query) => query.isPending
+  );
 
   const now = new Date();
-  const last30Start = subDays(now, 29);
-  const prev30Start = subDays(last30Start, 30);
-  const prev30End = subDays(last30Start, 1);
+  // Whole calendar days in local time: last 30 days is today plus the 29 before it, and the
+  // previous 30 days end at the close of the day before that. Keeping the time of day here
+  // would drop records from the first and last day of each window.
+  const last30Start = startOfDay(subDays(now, 29));
+  const prev30Start = startOfDay(subDays(now, 59));
+  const prev30End = endOfDay(subDays(now, 30));
   const completedSales = sales.filter((sale) => sale.payment_status !== 'refunded');
   const customers = contacts.filter((contact) => contact.status === 'customer').length;
   const activeDeals = deals.filter((deal) => !['closed_won', 'closed_lost'].includes(deal.stage));
@@ -301,7 +376,6 @@ export default function Dashboard() {
   const outOfStock = products.filter((product) => product.status === 'active' && Number(product.stock_quantity || 0) === 0).length;
   const inventoryValue = sumBy(products, (product) => product.inventory_value);
   const pipelineValue = sumBy(activeDeals, (deal) => deal.value);
-  const salesRevenue = sumBy(completedSales, (sale) => sale.total_amount);
   const wonRevenue = sumBy(wonDeals, (deal) => deal.value);
   const cashCollected = sumBy(payments, (payment) => payment.amount);
   const expenseTotal = sumBy(expenses, (expense) => expense.amount);
@@ -479,6 +553,18 @@ export default function Dashboard() {
     { label: 'View Reports', icon: ArrowUpRight, color: CHART_COLORS.purple, to: '/reports' },
   ];
 
+  if (primaryLoading) {
+    return <DashboardSkeleton />;
+  }
+
+  const revenueSummary = `Revenue and profit by month for the last six months. Total revenue ${formatMoney(
+    sumBy(revenueMonthly, (item) => item.Revenue)
+  )}, total profit ${formatMoney(sumBy(revenueMonthly, (item) => item.Profit))}.`;
+  const salesOrdersSummary = `Completed sales against booked orders by month for the last six months. ${sumBy(
+    salesOrdersMonthly,
+    (item) => item.Sales
+  )} sales and ${sumBy(salesOrdersMonthly, (item) => item.Orders)} orders.`;
+
   return (
     <div className="space-y-6">
       <section className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
@@ -496,8 +582,8 @@ export default function Dashboard() {
           <HeaderControl>
             {currencyInfo.symbol} {currency}
           </HeaderControl>
-          <HeaderControl onClick={() => fetchRates(true)} disabled={ratesLoading}>
-            <RefreshCw className={cn('h-4 w-4 text-slate-500', ratesLoading && 'animate-spin')} />
+          <HeaderControl onClick={() => fetchRates(true)} disabled={ratesLoading} aria-label="Refresh exchange rates">
+            <RefreshCw className={cn('h-4 w-4 text-slate-500', ratesLoading && 'animate-spin')} aria-hidden="true" />
           </HeaderControl>
         </div>
       </section>
@@ -572,7 +658,7 @@ export default function Dashboard() {
         </div>
       </section>
 
-      <section className="grid gap-4 xl:grid-cols-6">
+      <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-6">
         {topCards.map((card) => (
           <MetricCard key={card.label} {...card} />
         ))}
@@ -592,7 +678,7 @@ export default function Dashboard() {
           subtitle="Revenue and operating result over the last six months"
           right={<span className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-medium text-slate-600">This Year</span>}
         >
-          <div className="h-[280px]">
+          <div className="h-[280px] w-full" role="img" aria-label={revenueSummary}>
             <ResponsiveContainer width="100%" height="100%">
               <AreaChart data={revenueMonthly} margin={{ top: 10, right: 8, left: -20, bottom: 0 }}>
                 <defs>
@@ -624,7 +710,7 @@ export default function Dashboard() {
           subtitle="Closed sales against booked orders"
           right={<span className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-medium text-slate-600">This Year</span>}
         >
-          <div className="h-[280px]">
+          <div className="h-[280px] w-full" role="img" aria-label={salesOrdersSummary}>
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={salesOrdersMonthly} margin={{ top: 10, right: 8, left: -20, bottom: 0 }} barGap={10}>
                 <CartesianGrid vertical={false} strokeDasharray="3 3" stroke="#e2e8f0" />

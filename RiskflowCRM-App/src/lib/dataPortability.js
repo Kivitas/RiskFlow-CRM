@@ -84,6 +84,33 @@ export const normalizeRows = (rows) =>
     Object.fromEntries(Object.entries(row).map(([key, value]) => [key, sanitizeValue(value)]))
   );
 
+// Text that spreadsheet apps would read as a formula. Plain numbers (e.g. "-12.5") are never changed.
+const FORMULA_TRIGGER = /^[=+@\t\r-]/;
+const PLAIN_NUMBER = /^[+-]?(?:(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d*)?|\.\d+)$/;
+
+// Prefixes a single quote so exported text cannot run as a formula (CSV/ODS injection).
+const neutraliseFormula = (value) =>
+  typeof value === 'string' && FORMULA_TRIGGER.test(value) && !PLAIN_NUMBER.test(value) ? `'${value}` : value;
+
+// Reverses neutraliseFormula for cells that were prefixed by this module on export.
+const restoreFormulaCell = (value) => {
+  if (typeof value !== 'string' || !value.startsWith("'")) {
+    return value;
+  }
+  const rest = value.slice(1);
+  return FORMULA_TRIGGER.test(rest) && !PLAIN_NUMBER.test(rest) ? rest : value;
+};
+
+const restoreFormulaRows = (rows) =>
+  rows.map((row) => Object.fromEntries(Object.entries(row).map(([key, value]) => [key, restoreFormulaCell(value)])));
+
+// Union of the keys of every row, in first-seen order.
+const collectColumns = (rows) => {
+  const seen = new Set();
+  rows.forEach((row) => Object.keys(row).forEach((key) => seen.add(key)));
+  return [...seen];
+};
+
 const csvEscape = (value) => {
   const text = String(value ?? '');
   return /[",\n\r]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
@@ -175,9 +202,18 @@ const downloadBlob = (blob, filename) => {
   URL.revokeObjectURL(url);
 };
 
+// Parses spreadsheet numbers: currency symbols and thousand separators are ignored, and
+// accounting negatives such as "(500.00)" or a trailing minus such as "500-" become negative.
 const safeNumber = (value, fallback = 0) => {
-  const normalized = Number(String(value ?? '').replace(/[^0-9.-]/g, ''));
-  return Number.isFinite(normalized) ? normalized : fallback;
+  const raw = String(value ?? '').replace(/−/g, '-').trim();
+  const cleaned = raw.replace(/[^0-9.-]/g, '');
+  const core = cleaned.replace(/^-|-$/, '');
+  const magnitude = Number(core);
+  if (!Number.isFinite(magnitude) || core.includes('-')) {
+    return fallback;
+  }
+  const negative = /^-|-$/.test(cleaned) || /\(.*\)/.test(raw);
+  return negative && magnitude !== 0 ? -magnitude : magnitude;
 };
 
 const pick = (row, keys, fallback = '') => {
@@ -292,20 +328,21 @@ const buildImportPayload = (targetKey, row) => {
 
 export const exportRowsToCsv = (rows, label) => {
   const normalized = normalizeRows(rows);
-  const columns = normalized.length ? Object.keys(normalized[0]) : [];
+  const columns = collectColumns(normalized);
   const csv = [
     columns.map(csvEscape).join(','),
-    ...normalized.map((row) => columns.map((column) => csvEscape(row[column])).join(',')),
+    ...normalized.map((row) => columns.map((column) => csvEscape(neutraliseFormula(row[column]))).join(',')),
   ].join('\r\n');
   downloadBlob(new Blob([csv], { type: 'text/csv;charset=utf-8;' }), `${label}.csv`);
 };
 
 export const exportRowsToOds = (rows, label) => {
   const normalized = normalizeRows(rows);
-  const columns = normalized.length ? Object.keys(normalized[0]) : ['No data'];
+  const keys = collectColumns(normalized);
+  const columns = keys.length ? keys : ['No data'];
   const tableRows = [
     columns,
-    ...normalized.map((row) => columns.map((column) => row[column] ?? '')),
+    ...normalized.map((row) => columns.map((column) => neutraliseFormula(row[column] ?? ''))),
   ].map((row) => `
     <table:table-row>
       ${row.map((cell) => `<table:table-cell office:value-type="string"><text:p>${xmlEscape(cell)}</text:p></table:table-cell>`).join('')}
@@ -367,7 +404,7 @@ export const exportRowsToPdf = ({ rows, label, title, subtitle }) => {
 export const parseSpreadsheetFile = async (file) => {
   const extension = file.name.split('.').pop()?.toLowerCase();
   if (extension === 'csv') {
-    const rows = parseCsv(await file.text());
+    const rows = restoreFormulaRows(parseCsv(await file.text()));
     return {
       workbook: null,
       sheetName: file.name,
@@ -377,7 +414,7 @@ export const parseSpreadsheetFile = async (file) => {
   }
 
   if (extension === 'ods') {
-    const rows = parseOds(await file.arrayBuffer());
+    const rows = restoreFormulaRows(parseOds(await file.arrayBuffer()));
     return {
       workbook: null,
       sheetName: file.name,
@@ -386,11 +423,67 @@ export const parseSpreadsheetFile = async (file) => {
     };
   }
 
-  if (['xls', `xls${'x'}`].includes(extension)) {
+  if (['xls', 'xlsx'].includes(extension)) {
     throw new Error('Excel workbook files are not imported directly. Save/export the sheet as .ods or .csv and try again.');
   }
 
   throw new Error('Unsupported file type. Use .ods or .csv.');
+};
+
+const isBlankRow = (row) =>
+  Object.values(row).every((value) => String(value ?? '').trim() === '');
+
+// Checks the raw cells (before buildImportPayload fills defaults) so a row that has no real
+// identifying data, or an amount that is not a number, is reported instead of being created.
+// Returns an error message, or '' when the row can be imported.
+const validateImportRow = (targetKey, row) => {
+  // safeNumber falls back to 0 for text, so require at least one digit before accepting a value.
+  const hasNumber = (keys) => {
+    const raw = String(pick(row, keys, '') ?? '').trim();
+    return /\d/.test(raw) && Number.isFinite(safeNumber(raw, NaN));
+  };
+  const hasText = (keys) => String(pick(row, keys, '') ?? '').trim() !== '';
+
+  if (targetKey === 'contacts') {
+    return hasText(['name', 'full name', 'contact name', 'first_name', 'first name', 'last_name', 'last name', 'email', 'email address'])
+      ? ''
+      : 'Contact needs a name or email';
+  }
+  if (targetKey === 'products') {
+    return hasText(['name', 'product', 'product name', 'item', 'sku', 'code', 'item code'])
+      ? ''
+      : 'Product needs a name or SKU';
+  }
+  if (targetKey === 'deals') {
+    return hasText(['title', 'deal', 'opportunity', 'name', 'contact', 'contact name', 'customer', 'company', 'account'])
+      ? ''
+      : 'Deal needs a title, contact or company';
+  }
+  if (targetKey === 'sales') {
+    const amountKeys = ['total', 'amount', 'total amount'];
+    if (!hasText(['product', 'product name', 'item']) && !hasNumber(amountKeys)) {
+      return 'Sale needs a product or a total amount';
+    }
+    return hasText(amountKeys) && !hasNumber(amountKeys) ? 'Sale amount is not a number' : '';
+  }
+  if (targetKey === 'suppliers') {
+    return hasText(['name', 'supplier', 'supplier name', 'company'])
+      ? ''
+      : 'Supplier needs a name';
+  }
+  if (targetKey === 'expenses') {
+    if (!hasText(['amount', 'total', 'value'])) {
+      return 'Expense needs an amount';
+    }
+    return hasNumber(['amount', 'total', 'value']) ? '' : 'Expense amount is not a number';
+  }
+  if (targetKey === 'quotes') {
+    if (!hasText(['total', 'total amount', 'subtotal', 'amount', 'customer', 'customer name', 'client'])) {
+      return 'Quote needs a customer or an amount';
+    }
+    return '';
+  }
+  return '';
 };
 
 export const importRowsToDataset = async (targetKey, rows) => {
@@ -399,12 +492,23 @@ export const importRowsToDataset = async (targetKey, rows) => {
     throw new Error('Select a supported import destination.');
   }
   if (targetKey === 'analysis') {
-    return { imported: 0, failed: 0, errors: [], target, analysisOnly: true };
+    return { imported: 0, failed: 0, skipped: 0, errors: [], target, analysisOnly: true };
   }
 
   let imported = 0;
+  let skipped = 0;
   const errors = [];
   for (const [index, row] of rows.entries()) {
+    // Blank spreadsheet rows (e.g. trailing empty lines) are skipped, not reported as failures.
+    if (isBlankRow(row)) {
+      skipped += 1;
+      continue;
+    }
+    const problem = validateImportRow(targetKey, row);
+    if (problem) {
+      errors.push({ row: index + 2, message: problem });
+      continue;
+    }
     try {
       const payload = buildImportPayload(targetKey, row);
       if (targetKey === 'contacts') {
@@ -428,7 +532,7 @@ export const importRowsToDataset = async (targetKey, rows) => {
     }
   }
 
-  return { imported, failed: errors.length, errors, target };
+  return { imported, failed: errors.length, skipped, errors, target };
 };
 
 export const getDatasetByKey = (key) => DATASETS.find((dataset) => dataset.key === key) || DATASETS[0];

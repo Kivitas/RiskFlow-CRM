@@ -11,8 +11,10 @@ import {
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
+import { Skeleton } from '@/components/ui/skeleton';
+import { toast } from '@/components/ui/use-toast';
 import { cn } from '@/lib/utils';
-import { format, parseISO } from 'date-fns';
+import { format, isValid, parseISO } from 'date-fns';
 import OnboardingFormDialog from '@/components/onboarding/OnboardingFormDialog';
 import { useConfirm } from '@/lib/ConfirmContext';
 import { useCurrency } from '@/lib/CurrencyContext';
@@ -45,7 +47,12 @@ const DOC_CATEGORIES = [
   'Tax Return', 'Source of Funds', 'Corporate Docs', 'Other'
 ];
 
-const safeParse = (d) => { try { return parseISO(d); } catch { return new Date(); } };
+// parseISO never throws (it returns an Invalid Date) and format() throws on that, so guard both.
+const formatDate = (value, pattern) => {
+  if (!value) return '-';
+  const date = parseISO(String(value));
+  return isValid(date) ? format(date, pattern) : '-';
+};
 
 function getFileIcon(type) {
   if (!type) return File;
@@ -88,11 +95,16 @@ export default function OnboardingDetail() {
       qc.invalidateQueries({ queryKey: ['onboarding'] });
       setEditOpen(false);
     },
+    onError: (e) => toast({ title: 'Update failed', description: e.message, variant: 'destructive' }),
   });
 
   const deleteMutation = useMutation({
     mutationFn: () => crmClient.entities.OnboardingClient.delete(id),
-    onSuccess: () => navigate('/onboarding'),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['onboarding'] });
+      navigate('/onboarding');
+    },
+    onError: (e) => toast({ title: 'Delete failed', description: e.message, variant: 'destructive' }),
   });
 
   const handleUploadFile = async (file) => {
@@ -115,6 +127,8 @@ export default function OnboardingDetail() {
         uploaded_files: updatedFiles,
         documents_uploaded: updatedFiles.length,
       });
+    } catch (e) {
+      toast({ title: 'Upload failed', description: e?.message || 'The document could not be uploaded.', variant: 'destructive' });
     } finally {
       setUploading(false);
     }
@@ -151,8 +165,21 @@ export default function OnboardingDetail() {
   };
 
   if (isLoading) return (
-    <div className="flex items-center justify-center min-h-[60vh]">
-      <div className="w-8 h-8 border-4 border-primary/20 border-t-primary rounded-full animate-spin" />
+    <div className="space-y-5" aria-busy="true" aria-label="Loading onboarding client">
+      <div className="flex justify-between">
+        <Skeleton className="h-8 w-40" />
+        <Skeleton className="h-8 w-64" />
+      </div>
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+        <div className="space-y-4">
+          <Skeleton className="h-72 w-full rounded-xl" />
+          <Skeleton className="h-40 w-full rounded-xl" />
+        </div>
+        <div className="lg:col-span-2 space-y-4">
+          <Skeleton className="h-28 w-full rounded-xl" />
+          <Skeleton className="h-80 w-full rounded-xl" />
+        </div>
+      </div>
     </div>
   );
   if (!client) return <div className="text-center py-20 text-muted-foreground">Client not found.</div>;
@@ -160,7 +187,9 @@ export default function OnboardingDetail() {
   const stageIndex = stageOrder.indexOf(client.onboarding_stage);
   const overallProgress = Math.round(((stageIndex + 1) / stageOrder.length) * 100);
   const uploadedFiles = client.uploaded_files || [];
-  const docProgress = client.documents_required > 0 ? Math.min(100, Math.round((uploadedFiles.length / client.documents_required) * 100)) : 0;
+  // Same fallback as the "N of M" text below, so the bar and the label always agree.
+  const requiredDocs = client.documents_required || 5;
+  const docProgress = Math.min(100, Math.round((uploadedFiles.length / requiredDocs) * 100));
 
   return (
     <div>
@@ -240,7 +269,7 @@ export default function OnboardingDetail() {
               {client.date_of_birth && (
                 <div className="flex items-center gap-3 text-muted-foreground">
                   <div className="w-7 h-7 rounded-lg bg-muted flex items-center justify-center flex-shrink-0"><Calendar className="w-3.5 h-3.5" /></div>
-                  <span>DOB: {format(safeParse(client.date_of_birth), 'MMM d, yyyy')}</span>
+                  <span>DOB: {formatDate(client.date_of_birth, 'MMM d, yyyy')}</span>
                 </div>
               )}
               {client.id_number && (
@@ -252,7 +281,7 @@ export default function OnboardingDetail() {
               {client.target_completion_date && (
                 <div className="flex items-center gap-3 text-muted-foreground">
                   <div className="w-7 h-7 rounded-lg bg-muted flex items-center justify-center flex-shrink-0"><Clock className="w-3.5 h-3.5" /></div>
-                  <span>Target: {format(safeParse(client.target_completion_date), 'MMM d, yyyy')}</span>
+                  <span>Target: {formatDate(client.target_completion_date, 'MMM d, yyyy')}</span>
                 </div>
               )}
             </div>
@@ -336,7 +365,7 @@ export default function OnboardingDetail() {
               <div>
                 <h3 className="text-sm font-semibold text-card-foreground">Documents</h3>
                 <p className="text-xs text-muted-foreground mt-0.5">
-                  {uploadedFiles.length} of {client.documents_required || 5} required documents uploaded
+                  {uploadedFiles.length} of {requiredDocs} required documents uploaded
                 </p>
               </div>
               <span className="text-sm font-bold text-card-foreground">{docProgress}%</span>
@@ -350,6 +379,7 @@ export default function OnboardingDetail() {
                   <button
                     key={cat}
                     onClick={() => setUploadCategory(cat)}
+                    aria-pressed={uploadCategory === cat}
                     className={cn(
                       "px-2.5 py-1 rounded-full text-xs font-medium border transition-all",
                       uploadCategory === cat
@@ -367,6 +397,10 @@ export default function OnboardingDetail() {
                   "border-2 border-dashed rounded-xl p-6 text-center cursor-pointer transition-all",
                   dragOver ? "border-primary bg-primary/5" : "border-border hover:border-primary/50 hover:bg-muted/30"
                 )}
+                role="button"
+                tabIndex={0}
+                aria-label={`Upload ${uploadCategory} document`}
+                onKeyDown={(e) => { if ((e.key === 'Enter' || e.key === ' ') && !uploading) { e.preventDefault(); fileInputRef.current?.click(); } }}
                 onClick={() => !uploading && fileInputRef.current?.click()}
                 onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
                 onDragLeave={() => setDragOver(false)}
@@ -399,7 +433,7 @@ export default function OnboardingDetail() {
                 {uploadedFiles.map((file, i) => {
                   const Icon = getFileIcon(file.type);
                   return (
-                    <div key={i} className="flex items-center gap-3 p-3 rounded-lg bg-muted/30 border border-border hover:bg-muted/50 transition-colors group">
+                    <div key={file.url || i} className="flex items-center gap-3 p-3 rounded-lg bg-muted/30 border border-border hover:bg-muted/50 transition-colors group">
                       <div className="w-9 h-9 rounded-lg bg-card border border-border flex items-center justify-center flex-shrink-0">
                         <Icon className="w-[18px] h-[18px] text-primary" />
                       </div>
@@ -408,14 +442,15 @@ export default function OnboardingDetail() {
                         <div className="flex items-center gap-2 mt-0.5">
                           <span className="text-[10px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded-full">{file.category || 'Other'}</span>
                           {file.size && <span className="text-[10px] text-muted-foreground">{formatBytes(file.size)}</span>}
-                          {file.uploaded_at && <span className="text-[10px] text-muted-foreground">{format(safeParse(file.uploaded_at), 'MMM d, yyyy')}</span>}
+                          {file.uploaded_at && <span className="text-[10px] text-muted-foreground">{formatDate(file.uploaded_at, 'MMM d, yyyy')}</span>}
                         </div>
                       </div>
-                      <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                        <a href={file.url} target="_blank" rel="noopener noreferrer">
-                          <Button variant="ghost" size="icon" className="h-7 w-7"><Download className="w-3.5 h-3.5" /></Button>
+                      <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
+                        <a href={file.url} target="_blank" rel="noopener noreferrer" aria-label={`Download ${file.name}`}>
+                          <Button variant="ghost" size="icon" className="h-7 w-7" tabIndex={-1} aria-hidden="true"><Download className="w-3.5 h-3.5" /></Button>
                         </a>
                         <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-destructive"
+                          aria-label={`Remove ${file.name}`}
                           onClick={() => handleDeleteFile(file.url)}>
                           <X className="w-3.5 h-3.5" />
                         </Button>
@@ -435,6 +470,7 @@ export default function OnboardingDetail() {
         open={editOpen}
         onOpenChange={setEditOpen}
         client={client}
+        isSaving={updateMutation.isPending}
         onSave={(data) => updateMutation.mutate(data)}
       />
     </div>

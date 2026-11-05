@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { crmClient } from '@/api/crmClient';
 import {
@@ -37,9 +37,11 @@ import {
   XAxis,
   YAxis,
 } from 'recharts';
-import { endOfMonth, format, isWithinInterval, parseISO, startOfMonth, subMonths } from 'date-fns';
+import { endOfMonth, format, isValid, isWithinInterval, parseISO, startOfMonth, subMonths } from 'date-fns';
 import PageHeader from '@/components/shared/PageHeader';
 import EmptyState from '@/components/shared/EmptyState';
+import Pagination, { paginate } from '@/components/shared/Pagination';
+import { Skeleton } from '@/components/ui/skeleton';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -48,9 +50,9 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import ProductFormDialog from '@/Components/inventory/ProductFormDialog';
-import SaleFormDialog from '@/Components/inventory/SaleFormDialog';
-import StockAdjustmentDialog from '@/Components/workspace/StockAdjustmentDialog';
+import ProductFormDialog from '@/components/inventory/ProductFormDialog';
+import SaleFormDialog from '@/components/inventory/SaleFormDialog';
+import StockAdjustmentDialog from '@/components/workspace/StockAdjustmentDialog';
 import { cn } from '@/lib/utils';
 import { useBusiness } from '@/lib/BusinessContext';
 import { useConfirm } from '@/lib/ConfirmContext';
@@ -68,6 +70,13 @@ const pct = (num, denom) => denom ? `${((num / denom) * 100).toFixed(1)}%` : '-'
 
 const safeParse = (dateStr) => {
   try { return parseISO(dateStr); } catch { return new Date(0); }
+};
+
+// parseISO returns an Invalid Date rather than throwing, and format() throws on that, so guard both.
+const formatDate = (value, pattern) => {
+  if (!value) return '-';
+  const date = parseISO(String(value));
+  return isValid(date) ? format(date, pattern) : '-';
 };
 
 function KpiCard({ label, value, sub, icon: Icon, accent = '#6366f1', trend, trendUp }) {
@@ -158,7 +167,7 @@ export default function Inventory() {
 
   const money = formatMoney;
 
-  const { data: products = [] } = useQuery({
+  const { data: products = [], isLoading: productsLoading } = useQuery({
     queryKey: ['products'],
     queryFn: () => crmClient.products.list('-created_date'),
   });
@@ -194,6 +203,9 @@ export default function Inventory() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['products'] });
       qc.invalidateQueries({ queryKey: ['sales'] });
+      // A product update can write a "Manual edit" stock adjustment and renames rows in sales and POs.
+      qc.invalidateQueries({ queryKey: ['stock-adjustments'] });
+      qc.invalidateQueries({ queryKey: ['purchase-orders'] });
       setProductDialogOpen(false);
       setEditingProduct(null);
     },
@@ -206,6 +218,8 @@ export default function Inventory() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['products'] });
       qc.invalidateQueries({ queryKey: ['sales'] });
+      // Sales write Payment records (syncSalePayments).
+      qc.invalidateQueries({ queryKey: ['payments'] });
       setSaleDialogOpen(false);
       setEditingSale(null);
     },
@@ -217,7 +231,9 @@ export default function Inventory() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['products'] });
       qc.invalidateQueries({ queryKey: ['sales'] });
+      qc.invalidateQueries({ queryKey: ['stock-adjustments'] });
     },
+    onError: (e) => toast({ title: 'Delete failed', description: e.message, variant: 'destructive' }),
   });
 
   const deleteSaleMutation = useMutation({
@@ -225,7 +241,10 @@ export default function Inventory() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['products'] });
       qc.invalidateQueries({ queryKey: ['sales'] });
+      // Deleting a sale also removes its Payment records.
+      qc.invalidateQueries({ queryKey: ['payments'] });
     },
+    onError: (e) => toast({ title: 'Delete failed', description: e.message, variant: 'destructive' }),
   });
 
   const adjustmentMutation = useMutation({
@@ -263,8 +282,9 @@ export default function Inventory() {
   );
 
   const filteredProducts = useMemo(() => {
+    const q = search.trim().toLowerCase();
     let list = products.filter((p) => {
-      const matchSearch = `${p.name} ${p.sku} ${p.category} ${p.barcode || ''} ${p.ar_reference || ''}`.toLowerCase().includes(search.toLowerCase());
+      const matchSearch = !q || [p.name, p.sku, p.category, p.barcode, p.ar_reference].filter(Boolean).join(' ').toLowerCase().includes(q);
       const matchCat = categoryFilter === 'all' || p.category === categoryFilter;
       const matchStatus = statusFilter === 'all' || p.status === statusFilter;
       const matchWarehouse = warehouseFilter === 'all' || p.warehouse_id === warehouseFilter;
@@ -282,13 +302,18 @@ export default function Inventory() {
     return list;
   }, [products, search, categoryFilter, statusFilter, warehouseFilter, sortField, sortDir]);
 
-  const filteredSales = useMemo(
-    () =>
-      sales.filter((s) =>
-        `${s.product_name} ${s.customer_name || ''}`.toLowerCase().includes(saleSearch.toLowerCase())
-      ),
-    [sales, saleSearch]
-  );
+  const [productPage, setProductPage] = useState(1);
+  useEffect(() => {
+    setProductPage(1);
+  }, [search, categoryFilter, statusFilter, warehouseFilter, sortField, sortDir]);
+  const pagedProducts = paginate(filteredProducts, productPage);
+
+  const filteredSales = useMemo(() => {
+    const q = saleSearch.trim().toLowerCase();
+    return sales.filter((s) =>
+      [s.product_name, s.customer_name].filter(Boolean).join(' ').toLowerCase().includes(q)
+    );
+  }, [sales, saleSearch]);
 
   const categoryMix = useMemo(() => Object.values(
     products.reduce((acc, p) => {
@@ -329,6 +354,7 @@ export default function Inventory() {
       month: format(month, 'MMM'),
       Revenue: ms.reduce((sum, s) => sum + Number(s.total_amount || 0), 0),
       Orders: ms.length,
+      Units: ms.reduce((sum, s) => sum + Number(s.quantity || 0), 0),
     };
   }), [completedSales]);
 
@@ -442,7 +468,7 @@ export default function Inventory() {
         }
       />
 
-      <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-7 gap-3 mb-5">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-7 gap-3 mb-5">
         <KpiCard label="Total Products" value={products.length} sub={`${outOfStock.length} out of stock`} icon={Boxes} accent="#6366f1" />
         <KpiCard label="Low Stock" value={lowStockProducts.length} sub="Need reordering" icon={AlertTriangle} accent="#f59e0b" />
         <KpiCard label="Inventory Value" value={money(inventoryValue)} sub="At cost price" icon={Package} accent="#06b6d4" />
@@ -487,7 +513,13 @@ export default function Inventory() {
       {/* TAB: OVERVIEW */}
       {activeTab === 'Overview' && (
         <>
-          {products.length === 0 ? (
+          {productsLoading ? (
+            <div className="grid grid-cols-1 xl:grid-cols-3 gap-4 mb-4" aria-busy="true" aria-label="Loading inventory">
+              <Skeleton className="h-64 w-full rounded-2xl" />
+              <Skeleton className="h-64 w-full rounded-2xl" />
+              <Skeleton className="h-64 w-full rounded-2xl" />
+            </div>
+          ) : products.length === 0 ? (
             <EmptyState
               icon={Boxes}
               title="No inventory yet"
@@ -674,7 +706,7 @@ export default function Inventory() {
                               <p className="text-xs text-slate-500 capitalize">
                                 {(adjustment.reason || 'count_correction').replace(/_/g, ' ')} | {adjustment.warehouse_name || 'Default warehouse'}
                               </p>
-                              <p className="text-[11px] text-slate-400 mt-1">{format(safeParse(adjustment.adjustment_date), 'dd MMM yyyy')}</p>
+                              <p className="text-[11px] text-slate-400 mt-1">{formatDate(adjustment.adjustment_date, 'dd MMM yyyy')}</p>
                             </div>
                             <div className="text-right">
                               <p className={cn('text-sm font-bold', isIncrease ? 'text-emerald-600' : 'text-red-500')}>
@@ -739,21 +771,24 @@ export default function Inventory() {
           <div className="p-4 border-b border-slate-100">
             <div className="flex flex-col md:flex-row gap-3">
               <div className="relative flex-1">
-                <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" aria-hidden="true" />
                 <Input
+                  type="search"
+                  aria-label="Search products"
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
                 placeholder="Search by name, SKU, barcode, AR reference, or category..."
                   className="pl-9 bg-slate-50 border-slate-200"
                 />
                 {search && (
-                  <button onClick={() => setSearch('')} className="absolute right-3 top-1/2 -translate-y-1/2">
+                  <button onClick={() => setSearch('')} aria-label="Clear product search" className="absolute right-3 top-1/2 -translate-y-1/2">
                     <X className="w-3.5 h-3.5 text-slate-400" />
                   </button>
                 )}
               </div>
               <div className="flex gap-2">
                 <select
+                  aria-label="Filter by category"
                   value={categoryFilter}
                   onChange={(e) => setCategoryFilter(e.target.value)}
                   className="text-sm border border-slate-200 rounded-lg px-3 py-2 bg-slate-50 text-slate-600 focus:outline-none focus:ring-2 focus:ring-indigo-200"
@@ -763,6 +798,7 @@ export default function Inventory() {
                   ))}
                 </select>
                 <select
+                  aria-label="Filter by status"
                   value={statusFilter}
                   onChange={(e) => setStatusFilter(e.target.value)}
                   className="text-sm border border-slate-200 rounded-lg px-3 py-2 bg-slate-50 text-slate-600 focus:outline-none focus:ring-2 focus:ring-indigo-200"
@@ -773,6 +809,7 @@ export default function Inventory() {
                   <option value="discontinued">Discontinued</option>
                 </select>
                 <select
+                  aria-label="Filter by warehouse"
                   value={warehouseFilter}
                   onChange={(e) => setWarehouseFilter(e.target.value)}
                   className="text-sm border border-slate-200 rounded-lg px-3 py-2 bg-slate-50 text-slate-600 focus:outline-none focus:ring-2 focus:ring-indigo-200"
@@ -789,7 +826,13 @@ export default function Inventory() {
             </p>
           </div>
 
-          {filteredProducts.length === 0 ? (
+          {productsLoading ? (
+            <div className="p-4 space-y-3" aria-busy="true" aria-label="Loading products">
+              {Array.from({ length: 6 }).map((_, i) => (
+                <Skeleton key={i} className="h-12 w-full" />
+              ))}
+            </div>
+          ) : filteredProducts.length === 0 ? (
             <div className="p-12 text-center">
               <Boxes className="w-10 h-10 text-slate-300 mx-auto mb-3" />
               <p className="text-sm text-slate-500 font-medium">No products found</p>
@@ -797,7 +840,7 @@ export default function Inventory() {
             </div>
           ) : (
             <div className="overflow-x-auto">
-              <table className="w-full">
+              <table className="w-full min-w-[960px]">
                 <thead>
                   <tr className="bg-slate-50 border-b border-slate-100">
                     {[
@@ -828,7 +871,7 @@ export default function Inventory() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-50">
-                  {filteredProducts.map((p) => {
+                  {pagedProducts.map((p) => {
                     const qty = Number(p.stock_quantity || 0);
                     const reorder = Number(p.reorder_level || 0);
                     const isLow = qty <= reorder;
@@ -897,7 +940,7 @@ export default function Inventory() {
                         <td className="px-4 py-3.5 text-right">
                           <DropdownMenu>
                             <DropdownMenuTrigger asChild>
-                              <Button variant="ghost" size="icon" className="h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity">
+                              <Button variant="ghost" size="icon" aria-label={`Actions for ${p.name}`} className="h-7 w-7 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity">
                                 <MoreHorizontal className="w-4 h-4" />
                               </Button>
                             </DropdownMenuTrigger>
@@ -916,7 +959,7 @@ export default function Inventory() {
                                 onClick={async () => {
                                   const confirmed = await confirm({
                                     title: 'Delete product?',
-                                    description: `Delete ${p.name} and all related sales records.`,
+                                    description: `Delete ${p.name}. Products with sales or purchase history cannot be deleted; mark them discontinued instead.`,
                                     confirmLabel: 'Delete product',
                                     destructive: true,
                                   });
@@ -937,6 +980,10 @@ export default function Inventory() {
           )}
 
           {filteredProducts.length > 0 && (
+            <Pagination page={productPage} total={filteredProducts.length} onPageChange={setProductPage} label="products" />
+          )}
+
+          {filteredProducts.length > 0 && (
             <div className="px-4 py-3 border-t border-slate-100 bg-slate-50/50 flex flex-wrap gap-4 text-xs text-slate-500">
               <span>Total inventory value: <b className="text-slate-700">{money(filteredProducts.reduce((s, p) => s + Number(p.inventory_value || 0), 0))}</b></span>
               <span>Avg unit price: <b className="text-slate-700">{money(filteredProducts.reduce((s, p) => s + Number(p.unit_price || 0), 0) / (filteredProducts.length || 1))}</b></span>
@@ -953,6 +1000,8 @@ export default function Inventory() {
             <div className="relative flex-1">
               <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
               <Input
+                type="search"
+                aria-label="Search sales"
                 value={saleSearch}
                 onChange={(e) => setSaleSearch(e.target.value)}
                 placeholder="Search by product or customer..."
@@ -976,7 +1025,7 @@ export default function Inventory() {
             </div>
           ) : (
             <div className="overflow-x-auto">
-              <table className="w-full">
+              <table className="w-full min-w-[900px]">
                 <thead>
                   <tr className="bg-slate-50 border-b border-slate-100">
                     {['Product', 'Customer', 'Date', 'Qty', 'Unit Price', 'Total', 'Channel', 'Payment', ''].map((h) => (
@@ -1001,7 +1050,7 @@ export default function Inventory() {
                         <p className="text-sm text-slate-600">{sale.customer_name || <span className="text-slate-400 italic">Walk-in</span>}</p>
                       </td>
                       <td className="px-4 py-3.5 text-sm text-slate-500 whitespace-nowrap">
-                        {sale.sale_date ? format(safeParse(sale.sale_date), 'dd MMM yyyy') : '-'}
+                        {formatDate(sale.sale_date, 'dd MMM yyyy')}
                       </td>
                       <td className="px-4 py-3.5 text-sm font-semibold text-slate-700">{sale.quantity}</td>
                       <td className="px-4 py-3.5 text-sm text-slate-500">{money(sale.unit_price)}</td>
@@ -1015,7 +1064,7 @@ export default function Inventory() {
                       <td className="px-4 py-3.5 text-right">
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
-                            <Button variant="ghost" size="icon" className="h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity">
+                            <Button variant="ghost" size="icon" aria-label={`Actions for sale of ${sale.product_name}`} className="h-7 w-7 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity">
                               <MoreHorizontal className="w-4 h-4" />
                             </Button>
                           </DropdownMenuTrigger>
@@ -1195,19 +1244,15 @@ export default function Inventory() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-50">
-                  {monthlySales.map((row) => {
-                    const monthSales = completedSales.filter((s) => s.sale_date && format(safeParse(s.sale_date), 'MMM') === row.month);
-                    const units = monthSales.reduce((s, x) => s + Number(x.quantity || 0), 0);
-                    return (
-                      <tr key={row.month} className="hover:bg-slate-50/50">
-                        <td className="py-3 pr-6 font-semibold text-slate-700">{row.month}</td>
-                        <td className="py-3 pr-6 text-slate-600">{row.Orders}</td>
-                        <td className="py-3 pr-6 font-bold text-slate-800">{money(row.Revenue)}</td>
-                        <td className="py-3 pr-6 text-slate-600">{row.Orders > 0 ? money(row.Revenue / row.Orders) : '-'}</td>
-                        <td className="py-3 pr-6 text-slate-600">{units}</td>
-                      </tr>
-                    );
-                  })}
+                  {monthlySales.map((row) => (
+                    <tr key={row.month} className="hover:bg-slate-50/50">
+                      <td className="py-3 pr-6 font-semibold text-slate-700">{row.month}</td>
+                      <td className="py-3 pr-6 text-slate-600">{row.Orders}</td>
+                      <td className="py-3 pr-6 font-bold text-slate-800">{money(row.Revenue)}</td>
+                      <td className="py-3 pr-6 text-slate-600">{row.Orders > 0 ? money(row.Revenue / row.Orders) : '-'}</td>
+                      <td className="py-3 pr-6 text-slate-600">{row.Units}</td>
+                    </tr>
+                  ))}
                 </tbody>
               </table>
             </div>
@@ -1273,6 +1318,7 @@ export default function Inventory() {
         onOpenChange={setProductDialogOpen}
         product={editingProduct}
         warehouses={warehouses}
+        isSaving={productMutation.isPending}
         onSave={(data) => productMutation.mutate({ id: editingProduct?.id, data })}
       />
       <SaleFormDialog
@@ -1281,12 +1327,14 @@ export default function Inventory() {
         sale={editingSale}
         products={products}
         initialProductId={draftSaleProductId}
+        isSaving={saleMutation.isPending}
         onSave={(data) => saleMutation.mutate({ id: editingSale?.id, data })}
       />
       <StockAdjustmentDialog
         open={adjustmentDialogOpen}
         onOpenChange={setAdjustmentDialogOpen}
         products={products}
+        isSaving={adjustmentMutation.isPending}
         onSave={(data) => adjustmentMutation.mutate(data)}
       />
     </div>

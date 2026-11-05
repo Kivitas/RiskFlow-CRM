@@ -10,9 +10,11 @@ import {
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Textarea } from '@/components/ui/textarea';
+import { Skeleton } from '@/components/ui/skeleton';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { toast } from '@/components/ui/use-toast';
 import { cn } from '@/lib/utils';
-import { format, parseISO } from 'date-fns';
+import { format, isValid, parseISO } from 'date-fns';
 import ContactFormDialog from '@/components/contacts/ContactFormDialog';
 import { useConfirm } from '@/lib/ConfirmContext';
 import { useCurrency } from '@/lib/CurrencyContext';
@@ -34,7 +36,12 @@ const activityTypeConfig = {
   risk_alert: { icon: ShieldAlert, color: 'text-destructive', bg: 'bg-destructive/10' },
 };
 
-const safeParse = (d) => { try { return parseISO(d); } catch { return new Date(); } };
+// parseISO never throws (it returns an Invalid Date) and format() throws on that, so guard both.
+const formatDate = (value, pattern) => {
+  if (!value) return '-';
+  const date = parseISO(String(value));
+  return isValid(date) ? format(date, pattern) : '-';
+};
 
 export default function ContactDetail() {
   const { id } = useParams();
@@ -83,6 +90,7 @@ export default function ContactDetail() {
       qc.invalidateQueries({ queryKey: ['activities'] });
       setEditOpen(false);
     },
+    onError: (e) => toast({ title: 'Contact save failed', description: e.message, variant: 'destructive' }),
   });
 
   const deleteMutation = useMutation({
@@ -93,6 +101,7 @@ export default function ContactDetail() {
       qc.invalidateQueries({ queryKey: ['activities'] });
       navigate('/contacts');
     },
+    onError: (e) => toast({ title: 'Delete failed', description: e.message, variant: 'destructive' }),
   });
 
   const addActivityMutation = useMutation({
@@ -103,6 +112,7 @@ export default function ContactDetail() {
       setActivityDesc('');
       setShowActivityForm(false);
     },
+    onError: (e) => toast({ title: 'Activity save failed', description: e.message, variant: 'destructive' }),
   });
 
   const handleAddActivity = () => {
@@ -118,8 +128,18 @@ export default function ContactDetail() {
   };
 
   if (isLoading) return (
-    <div className="flex items-center justify-center min-h-[60vh]">
-      <div className="w-8 h-8 border-4 border-primary/20 border-t-primary rounded-full animate-spin" />
+    <div className="space-y-5" aria-busy="true" aria-label="Loading contact">
+      <Skeleton className="h-4 w-32" />
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+        <div className="lg:col-span-1 space-y-4">
+          <Skeleton className="h-72 w-full rounded-xl" />
+          <Skeleton className="h-40 w-full rounded-xl" />
+        </div>
+        <div className="lg:col-span-2 space-y-4">
+          <Skeleton className="h-40 w-full rounded-xl" />
+          <Skeleton className="h-64 w-full rounded-xl" />
+        </div>
+      </div>
     </div>
   );
 
@@ -155,10 +175,10 @@ export default function ContactDetail() {
                 </div>
               </div>
               <div className="flex gap-1.5">
-                <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setEditOpen(true)}>
+                <Button variant="ghost" size="icon" className="h-8 w-8" aria-label={`Edit ${contact.first_name} ${contact.last_name}`} onClick={() => setEditOpen(true)}>
                   <Pencil className="w-3.5 h-3.5" />
                 </Button>
-                <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:text-destructive"
+                <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:text-destructive" aria-label={`Delete ${contact.first_name} ${contact.last_name}`}
                   onClick={async () => {
                     const confirmed = await confirm({
                       title: 'Delete contact?',
@@ -214,7 +234,7 @@ export default function ContactDetail() {
                 <div className="w-7 h-7 rounded-lg bg-muted flex items-center justify-center flex-shrink-0">
                   <Calendar className="w-3.5 h-3.5" />
                 </div>
-                <span>Added {contact.created_date ? format(safeParse(contact.created_date), 'MMM d, yyyy') : '-'}</span>
+                <span>Added {formatDate(contact.created_date, 'MMM d, yyyy')}</span>
               </div>
             </div>
 
@@ -270,13 +290,13 @@ export default function ContactDetail() {
                     <div>
                       <p className="text-sm font-medium text-card-foreground">{deal.title}</p>
                       <p className="text-xs text-muted-foreground capitalize mt-0.5">
-                        {deal.stage.replace(/_/g, ' ')} | {deal.probability}% probability
+                        {deal.stage?.replace(/_/g, ' ')} | {deal.probability ?? 0}% probability
                       </p>
                     </div>
                     <div className="text-right">
                       <p className="text-sm font-bold text-card-foreground">{formatMoney(deal.value)}</p>
                       {deal.expected_close_date && (
-                        <p className="text-xs text-muted-foreground">{format(safeParse(deal.expected_close_date), 'MMM d')}</p>
+                        <p className="text-xs text-muted-foreground">{formatDate(deal.expected_close_date, 'MMM d')}</p>
                       )}
                     </div>
                   </div>
@@ -296,7 +316,7 @@ export default function ContactDetail() {
 
             {showActivityForm && (
               <div className="mb-4 p-4 bg-muted/30 rounded-lg border border-border space-y-3">
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <Select value={activityType} onValueChange={setActivityType}>
                     <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
                     <SelectContent>
@@ -308,6 +328,7 @@ export default function ContactDetail() {
                     </SelectContent>
                   </Select>
                   <input
+                    aria-label="Activity title"
                     className="h-8 rounded-md border border-input bg-background px-3 text-xs w-full focus:outline-none focus:ring-2 focus:ring-ring"
                     placeholder="Title *"
                     value={activityTitle}
@@ -315,6 +336,7 @@ export default function ContactDetail() {
                   />
                 </div>
                 <Textarea
+                  aria-label="Activity description"
                   className="text-xs min-h-[60px]"
                   placeholder="Description (optional)"
                   value={activityDesc}
@@ -344,7 +366,7 @@ export default function ContactDetail() {
                           <p className="text-sm font-medium text-card-foreground">{activity.title}</p>
                           <span className="text-[10px] text-muted-foreground flex-shrink-0 flex items-center gap-1 mt-0.5">
                             <Clock className="w-3 h-3" />
-                            {activity.created_date ? format(safeParse(activity.created_date), 'MMM d, h:mm a') : '-'}
+                            {formatDate(activity.created_date, 'MMM d, h:mm a')}
                           </span>
                         </div>
                         {activity.description && <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">{activity.description}</p>}
@@ -359,7 +381,7 @@ export default function ContactDetail() {
         </div>
       </div>
 
-      <ContactFormDialog open={editOpen} onOpenChange={setEditOpen} contact={contact} onSave={(data) => updateMutation.mutate(data)} />
+      <ContactFormDialog open={editOpen} onOpenChange={setEditOpen} contact={contact} isSaving={updateMutation.isPending} onSave={(data) => updateMutation.mutate(data)} />
     </div>
   );
 }

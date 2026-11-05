@@ -56,7 +56,7 @@ for ($i = 0; $i -lt 120; $i++) {
 
 if (-not $serverReady) {
   Add-Type -AssemblyName PresentationFramework
-  [System.Windows.MessageBox]::Show("RiskFlow CRM could not start on http://127.0.0.1:5173/. Close any old RiskFlow windows and run Riskflow.bat again.", "RiskFlow CRM")
+  [System.Windows.MessageBox]::Show("RiskFlow CRM could not start on http://127.0.0.1:5173/. Close any old RiskFlow windows and run scripts\start-riskflow.ps1 again.", "RiskFlow CRM")
   "$(Get-Date -Format o) App failed to become reachable" | Add-Content -Path $logPath -Encoding ASCII
   exit 1
 }

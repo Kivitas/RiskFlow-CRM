@@ -13,10 +13,17 @@ import { Button } from '@/components/ui/button';
 import { exportRowsToCsv, exportRowsToOds, exportRowsToPdf } from '@/lib/dataPortability';
 import { buildReportMessage, openEmailWorkflow, openWhatsAppWorkflow } from '@/lib/workflowLinks';
 import { Download, FileSpreadsheet, Mail, MessageCircle } from 'lucide-react';
+import { Skeleton } from '@/components/ui/skeleton';
 
 const COLORS = ['hsl(230,65%,52%)', 'hsl(172,60%,42%)', 'hsl(38,92%,55%)', 'hsl(280,55%,55%)', 'hsl(0,72%,55%)', 'hsl(200,60%,50%)'];
 
 const safeParse = (d) => { try { return parseISO(d); } catch { return new Date(0); } };
+
+// Deal values can arrive as text; non-numeric values count as 0 so sums never concatenate or go NaN.
+const toNumber = (value) => {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : 0;
+};
 
 const ChartCard = ({ title, subtitle, children, className = '' }) => (
   <div className={`bg-card rounded-xl border border-border p-5 ${className}`}>
@@ -32,18 +39,34 @@ export default function Reports() {
   const { formatMoney } = useCurrency();
   const { profile } = useBusiness();
 
-  const { data: contacts = [] } = useQuery({ queryKey: ['contacts'], queryFn: () => crmClient.entities.Contact.list() });
-  const { data: deals = [] } = useQuery({ queryKey: ['deals'], queryFn: () => crmClient.entities.Deal.list() });
-  const { data: risks = [] } = useQuery({ queryKey: ['risks'], queryFn: () => crmClient.entities.RiskAssessment.list() });
-  const { data: onboarding = [] } = useQuery({ queryKey: ['onboarding'], queryFn: () => crmClient.entities.OnboardingClient.list() });
-  const { data: products = [] } = useQuery({ queryKey: ['products'], queryFn: () => crmClient.products.list() });
-  const { data: sales = [] } = useQuery({ queryKey: ['sales'], queryFn: () => crmClient.sales.list() });
-  const { data: purchaseOrders = [] } = useQuery({ queryKey: ['purchase-orders'], queryFn: () => crmClient.purchases.list() });
-  const { data: expenses = [] } = useQuery({ queryKey: ['expenses'], queryFn: () => crmClient.expenses.list() });
-  const { data: quotes = [] } = useQuery({ queryKey: ['quotes'], queryFn: () => crmClient.quotes.list() });
-  const { data: salesOrders = [] } = useQuery({ queryKey: ['sales-orders'], queryFn: () => crmClient.salesOrders.list() });
-  const { data: payments = [] } = useQuery({ queryKey: ['payments'], queryFn: () => crmClient.payments.list() });
-  const { data: approvals = [] } = useQuery({ queryKey: ['approvals'], queryFn: () => crmClient.approvals.list() });
+  const contactsQuery = useQuery({ queryKey: ['contacts'], queryFn: () => crmClient.entities.Contact.list() });
+  const dealsQuery = useQuery({ queryKey: ['deals'], queryFn: () => crmClient.entities.Deal.list() });
+  const risksQuery = useQuery({ queryKey: ['risks'], queryFn: () => crmClient.entities.RiskAssessment.list() });
+  const onboardingQuery = useQuery({ queryKey: ['onboarding'], queryFn: () => crmClient.entities.OnboardingClient.list() });
+  const productsQuery = useQuery({ queryKey: ['products'], queryFn: () => crmClient.products.list() });
+  const salesQuery = useQuery({ queryKey: ['sales'], queryFn: () => crmClient.sales.list() });
+  const purchaseOrdersQuery = useQuery({ queryKey: ['purchase-orders'], queryFn: () => crmClient.purchases.list() });
+  const expensesQuery = useQuery({ queryKey: ['expenses'], queryFn: () => crmClient.expenses.list() });
+  const quotesQuery = useQuery({ queryKey: ['quotes'], queryFn: () => crmClient.quotes.list() });
+  const salesOrdersQuery = useQuery({ queryKey: ['sales-orders'], queryFn: () => crmClient.salesOrders.list() });
+  const paymentsQuery = useQuery({ queryKey: ['payments'], queryFn: () => crmClient.payments.list() });
+  const approvalsQuery = useQuery({ queryKey: ['approvals'], queryFn: () => crmClient.approvals.list() });
+  const contacts = contactsQuery.data ?? [];
+  const deals = dealsQuery.data ?? [];
+  const risks = risksQuery.data ?? [];
+  const onboarding = onboardingQuery.data ?? [];
+  const products = productsQuery.data ?? [];
+  const sales = salesQuery.data ?? [];
+  const purchaseOrders = purchaseOrdersQuery.data ?? [];
+  const expenses = expensesQuery.data ?? [];
+  const quotes = quotesQuery.data ?? [];
+  const salesOrders = salesOrdersQuery.data ?? [];
+  const payments = paymentsQuery.data ?? [];
+  const approvals = approvalsQuery.data ?? [];
+  const loading = [
+    contactsQuery, dealsQuery, risksQuery, onboardingQuery, productsQuery, salesQuery, purchaseOrdersQuery,
+    expensesQuery, quotesQuery, salesOrdersQuery, paymentsQuery, approvalsQuery,
+  ].some((query) => query.isPending);
   const completedSales = sales.filter((sale) => sale.payment_status !== 'refunded');
 
   const isEmpty = contacts.length === 0 && deals.length === 0 && risks.length === 0 && products.length === 0
@@ -68,8 +91,8 @@ export default function Reports() {
   const lostDeals = deals.filter(d => d.stage === 'closed_lost');
   const closedTotal = wonDeals.length + lostDeals.length;
   const winRate = closedTotal > 0 ? Math.round((wonDeals.length / closedTotal) * 100) : 0;
-  const avgDealSize = deals.length > 0 ? Math.round(deals.reduce((s, d) => s + (d.value || 0), 0) / deals.length) : 0;
-  const totalRevenue = wonDeals.reduce((s, d) => s + (d.value || 0), 0);
+  const avgDealSize = deals.length > 0 ? Math.round(deals.reduce((s, d) => s + toNumber(d.value), 0) / deals.length) : 0;
+  const totalRevenue = wonDeals.reduce((s, d) => s + toNumber(d.value), 0);
   const openRisks = risks.filter(r => r.status !== 'resolved' && r.status !== 'accepted').length;
   const inventoryValue = products.reduce((sum, p) => sum + Number(p.inventory_value || 0), 0);
   const salesRevenue = completedSales.reduce((sum, s) => sum + Number(s.total_amount || 0), 0);
@@ -84,9 +107,9 @@ export default function Reports() {
   const approvalBacklog = approvals.filter(a => a.status === 'pending').length;
 
   const stageData = ['discovery', 'proposal', 'negotiation', 'closed_won', 'closed_lost'].map(s => ({
-    name: s.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase()),
+    name: s.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()),
     Count: deals.filter(d => d.stage === s).length,
-    Value: deals.filter(d => d.stage === s).reduce((sum, d) => sum + (d.value || 0), 0),
+    Value: deals.filter(d => d.stage === s).reduce((sum, d) => sum + toNumber(d.value), 0),
   }));
 
   const statusData = ['lead', 'prospect', 'customer', 'churned'].map(s => ({
@@ -95,7 +118,7 @@ export default function Reports() {
   })).filter(d => d.value > 0);
 
   const sourceData = ['website', 'referral', 'cold_call', 'event', 'social_media', 'other'].map(s => ({
-    name: s.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase()),
+    name: s.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()),
     Count: contacts.filter(c => c.source === s).length,
   })).filter(d => d.Count > 0);
 
@@ -112,12 +135,12 @@ export default function Reports() {
     const interval = { start: startOfMonth(month), end: endOfMonth(month) };
     const newContacts = contacts.filter(c => c.created_date && isWithinInterval(safeParse(c.created_date), interval)).length;
     const newDeals = deals.filter(d => d.created_date && isWithinInterval(safeParse(d.created_date), interval)).length;
-    const revenue = deals.filter(d => d.stage === 'closed_won' && isWithinInterval(safeParse(d.updated_date || d.created_date), interval)).reduce((s, d) => s + (d.value || 0), 0);
+    const revenue = deals.filter(d => d.stage === 'closed_won' && isWithinInterval(safeParse(d.updated_date || d.created_date), interval)).reduce((s, d) => s + toNumber(d.value), 0);
     return { month: format(month, 'MMM'), Contacts: newContacts, Deals: newDeals, Revenue: revenue };
   });
 
   const kycData = ['pending', 'in_review', 'approved', 'rejected'].map(s => ({
-    name: s.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase()),
+    name: s.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()),
     value: onboarding.filter(o => o.kyc_status === s).length,
   })).filter(d => d.value > 0);
 
@@ -234,6 +257,29 @@ export default function Reports() {
       </Button>
     </div>
   );
+
+  if (loading) {
+    return (
+      <div aria-busy="true" aria-live="polite">
+        <PageHeader title="Reports & Analytics" subtitle="Insights across your entire platform" actions={reportActions} />
+        <span className="sr-only">Loading reports</span>
+        <div className="grid grid-cols-2 lg:grid-cols-5 gap-4 mb-5">
+          {Array.from({ length: 10 }, (_, i) => (
+            <div key={i} className="bg-card rounded-xl border border-border p-4 flex flex-col items-center gap-2">
+              <Skeleton className="h-7 w-20" />
+              <Skeleton className="h-3 w-16" />
+            </div>
+          ))}
+        </div>
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <Skeleton className="h-[320px] rounded-xl" />
+          <Skeleton className="h-[320px] rounded-xl" />
+          <Skeleton className="h-[320px] rounded-xl" />
+          <Skeleton className="h-[320px] rounded-xl" />
+        </div>
+      </div>
+    );
+  }
 
   if (isEmpty) {
     return (

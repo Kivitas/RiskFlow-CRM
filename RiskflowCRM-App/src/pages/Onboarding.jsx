@@ -1,17 +1,19 @@
 import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { crmClient } from '@/api/crmClient';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { Plus, UserPlus, MoreHorizontal, Pencil, Trash2, CheckCircle, FileText } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
+import { Skeleton } from '@/components/ui/skeleton';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
+import { toast } from '@/components/ui/use-toast';
 import PageHeader from '@/components/shared/PageHeader';
 import EmptyState from '@/components/shared/EmptyState';
 import OnboardingFormDialog from '@/components/onboarding/OnboardingFormDialog';
 import { cn } from '@/lib/utils';
-import { format, parseISO } from 'date-fns';
+import { format, isValid, parseISO } from 'date-fns';
 
 const stageOrder = ['intake', 'kyc_verification', 'risk_profiling', 'document_collection', 'account_setup', 'completed'];
 const stageLabels = {
@@ -36,7 +38,12 @@ const priorityColors = {
   high: 'bg-red-50 text-red-600 border-red-200',
 };
 
-const safeParse = (d) => { try { return parseISO(d); } catch { return new Date(); } };
+// parseISO never throws (it returns an Invalid Date) and format() throws on that, so guard both.
+const formatDate = (value, pattern) => {
+  if (!value) return '-';
+  const date = parseISO(String(value));
+  return isValid(date) ? format(date, pattern) : '-';
+};
 
 export default function Onboarding() {
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -52,16 +59,19 @@ export default function Onboarding() {
   const createMutation = useMutation({
     mutationFn: (data) => crmClient.entities.OnboardingClient.create(data),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['onboarding'] }); setDialogOpen(false); },
+    onError: (e) => toast({ title: 'Client save failed', description: e.message, variant: 'destructive' }),
   });
 
   const updateMutation = useMutation({
     mutationFn: ({ id, data }) => crmClient.entities.OnboardingClient.update(id, data),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['onboarding'] }); setDialogOpen(false); setEditClient(null); },
+    onError: (e) => toast({ title: 'Update failed', description: e.message, variant: 'destructive' }),
   });
 
   const deleteMutation = useMutation({
     mutationFn: (id) => crmClient.entities.OnboardingClient.delete(id),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['onboarding'] }),
+    onError: (e) => toast({ title: 'Delete failed', description: e.message, variant: 'destructive' }),
   });
 
   const handleSave = (data) => {
@@ -101,14 +111,31 @@ export default function Onboarding() {
         })}
       </div>
 
-      {clients.length === 0 && !isLoading ? (
+      {isLoading ? (
+        <div className="space-y-3" aria-busy="true" aria-label="Loading onboarding clients">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <div key={i} className="bg-card rounded-xl border border-border p-5 space-y-3">
+              <div className="flex items-center gap-3">
+                <Skeleton className="h-9 w-9 rounded-full" />
+                <div className="space-y-2">
+                  <Skeleton className="h-4 w-40" />
+                  <Skeleton className="h-3 w-28" />
+                </div>
+              </div>
+              <Skeleton className="h-4 w-2/3" />
+            </div>
+          ))}
+        </div>
+      ) : clients.length === 0 ? (
         <EmptyState icon={UserPlus} title="No onboarding clients" description="Start onboarding a new client to track their progress." actionLabel="Add Client" onAction={() => setDialogOpen(true)} />
       ) : (
         <div className="space-y-3">
           {clients.map(client => {
             const stageIndex = stageOrder.indexOf(client.onboarding_stage);
             const progress = ((stageIndex + 1) / stageOrder.length) * 100;
-            const docProgress = client.documents_required > 0 ? ((client.documents_uploaded || 0) / client.documents_required) * 100 : 0;
+            // Same fallback as the "x/N" label below, so the bar and the label always agree.
+            const requiredDocs = client.documents_required || 5;
+            const docProgress = Math.min(100, ((client.documents_uploaded || 0) / requiredDocs) * 100);
 
             return (
               <div key={client.id} className="bg-card rounded-xl border border-border p-5 hover:shadow-lg transition-shadow group cursor-pointer" onClick={() => navigate(`/onboarding/${client.id}`)}>
@@ -119,7 +146,15 @@ export default function Onboarding() {
                         <span className="text-xs font-bold text-primary">{client.client_name?.[0]?.toUpperCase()}</span>
                       </div>
                       <div>
-                        <h3 className="text-sm font-semibold text-card-foreground">{client.client_name}</h3>
+                        <h3 className="text-sm font-semibold text-card-foreground">
+                          <Link
+                            to={`/onboarding/${client.id}`}
+                            onClick={e => e.stopPropagation()}
+                            className="rounded hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                          >
+                            {client.client_name}
+                          </Link>
+                        </h3>
                         <p className="text-xs text-muted-foreground">{client.company || client.email}</p>
                       </div>
                     </div>
@@ -140,7 +175,7 @@ export default function Onboarding() {
                       <Progress value={progress} className="h-1.5" />
                       <div className="flex items-center justify-between text-xs">
                         <span className="text-muted-foreground flex items-center gap-1"><FileText className="w-3 h-3" /> Docs</span>
-                        <span className="font-semibold text-card-foreground">{client.documents_uploaded || 0}/{client.documents_required || 5}</span>
+                        <span className="font-semibold text-card-foreground">{client.documents_uploaded || 0}/{requiredDocs}</span>
                       </div>
                       <Progress value={docProgress} className="h-1.5" />
                     </div>
@@ -148,13 +183,13 @@ export default function Onboarding() {
                     {client.target_completion_date && (
                       <div className="text-right flex-shrink-0">
                         <p className="text-[10px] text-muted-foreground">Target</p>
-                        <p className="text-xs font-semibold text-card-foreground">{format(safeParse(client.target_completion_date), 'MMM d')}</p>
+                        <p className="text-xs font-semibold text-card-foreground">{formatDate(client.target_completion_date, 'MMM d')}</p>
                       </div>
                     )}
 
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="icon" className="h-8 w-8 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0" onClick={e => e.stopPropagation()}>
+                        <Button variant="ghost" size="icon" aria-label={`Actions for ${client.client_name}`} className="h-8 w-8 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity flex-shrink-0" onClick={e => e.stopPropagation()}>
                           <MoreHorizontal className="w-4 h-4" />
                         </Button>
                       </DropdownMenuTrigger>
@@ -187,7 +222,7 @@ export default function Onboarding() {
         </div>
       )}
 
-      <OnboardingFormDialog open={dialogOpen} onOpenChange={setDialogOpen} client={editClient} onSave={handleSave} />
+      <OnboardingFormDialog open={dialogOpen} onOpenChange={setDialogOpen} client={editClient} isSaving={createMutation.isPending || updateMutation.isPending} onSave={handleSave} />
     </div>
   );
 }

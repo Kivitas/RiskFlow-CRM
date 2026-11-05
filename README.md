@@ -33,9 +33,7 @@ More screenshots are available in `RiskflowCRM-App/github/screenshots`.
 
 ## Run
 
-Unsigned `.bat` and `.exe` launchers are not committed to this repository.
-
-Use `installation.md` to build `Riskflow.bat` or `Riskflow.exe` locally. The launcher starts the app server and opens `http://127.0.0.1:5173/`.
+From `RiskflowCRM-App`, run `npm install` then `npm run dev`, and open `http://127.0.0.1:5173/`. See `RiskflowCRM-App/HOW TO RUN.md` for details and the PowerShell launcher script.
 
 ## Development
 

@@ -1,19 +1,21 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { crmClient } from '@/api/crmClient';
 import {
   Bar, BarChart, CartesianGrid, Cell, Pie, PieChart,
   ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from 'recharts';
-import { endOfMonth, format, isWithinInterval, parseISO, startOfMonth, subMonths } from 'date-fns';
+import { endOfMonth, format, isValid, isWithinInterval, parseISO, startOfMonth, subMonths } from 'date-fns';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
 import PageHeader from '@/components/shared/PageHeader';
 import EmptyState from '@/components/shared/EmptyState';
-import SupplierFormDialog from '@/Components/procurement/SupplierFormDialog';
-import PurchaseOrderFormDialog from '@/Components/procurement/PurchaseOrderFormDialog';
+import Pagination, { paginate } from '@/components/shared/Pagination';
+import { Skeleton } from '@/components/ui/skeleton';
+import SupplierFormDialog from '@/components/procurement/SupplierFormDialog';
+import PurchaseOrderFormDialog from '@/components/procurement/PurchaseOrderFormDialog';
 import { MoreHorizontal, Plus, ShoppingBag, Truck, Users } from 'lucide-react';
 import { useBusiness } from '@/lib/BusinessContext';
 import { useConfirm } from '@/lib/ConfirmContext';
@@ -27,6 +29,13 @@ const safeParse = (dateStr) => {
   try { return parseISO(dateStr); } catch { return new Date(0); }
 };
 
+// parseISO returns an Invalid Date rather than throwing, and format() throws on that, so guard both.
+const formatDate = (value, pattern) => {
+  if (!value) return '-';
+  const date = parseISO(String(value));
+  return isValid(date) ? format(date, pattern) : '-';
+};
+
 export default function Procurement() {
   const qc = useQueryClient();
   const { profile } = useBusiness();
@@ -38,8 +47,8 @@ export default function Procurement() {
   const [editingSupplier, setEditingSupplier] = useState(null);
   const [editingOrder, setEditingOrder] = useState(null);
 
-  const { data: suppliers = [] } = useQuery({ queryKey: ['suppliers'], queryFn: () => crmClient.suppliers.list('-created_date') });
-  const { data: purchaseOrders = [] } = useQuery({ queryKey: ['purchase-orders'], queryFn: () => crmClient.purchases.list('-order_date') });
+  const { data: suppliers = [], isLoading: suppliersLoading } = useQuery({ queryKey: ['suppliers'], queryFn: () => crmClient.suppliers.list('-created_date') });
+  const { data: purchaseOrders = [], isLoading: ordersLoading } = useQuery({ queryKey: ['purchase-orders'], queryFn: () => crmClient.purchases.list('-order_date') });
   const { data: products = [] } = useQuery({ queryKey: ['products'], queryFn: () => crmClient.products.list('-created_date') });
 
   const supplierMutation = useMutation({
@@ -50,6 +59,7 @@ export default function Procurement() {
       setSupplierDialogOpen(false);
       setEditingSupplier(null);
     },
+    onError: (error) => toast({ title: 'Supplier save failed', description: error.message, variant: 'destructive' }),
   });
 
   const purchaseMutation = useMutation({
@@ -57,6 +67,8 @@ export default function Procurement() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['purchase-orders'] });
       qc.invalidateQueries({ queryKey: ['products'] });
+      // Creating a PO above the approval threshold writes an ApprovalRequest.
+      qc.invalidateQueries({ queryKey: ['approvals'] });
       setOrderDialogOpen(false);
       setEditingOrder(null);
     },
@@ -69,6 +81,7 @@ export default function Procurement() {
       qc.invalidateQueries({ queryKey: ['suppliers'] });
       qc.invalidateQueries({ queryKey: ['purchase-orders'] });
     },
+    onError: (error) => toast({ title: 'Delete failed', description: error.message, variant: 'destructive' }),
   });
 
   const deletePurchaseMutation = useMutation({
@@ -77,14 +90,21 @@ export default function Procurement() {
       qc.invalidateQueries({ queryKey: ['purchase-orders'] });
       qc.invalidateQueries({ queryKey: ['products'] });
     },
+    onError: (error) => toast({ title: 'Delete failed', description: error.message, variant: 'destructive' }),
   });
 
-  const filteredSuppliers = useMemo(
-    () => suppliers.filter((s) =>
-      `${s.name} ${s.contact_person || ''} ${s.email || ''}`.toLowerCase().includes(search.toLowerCase())
-    ),
-    [suppliers, search]
-  );
+  const filteredSuppliers = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return suppliers.filter((s) =>
+      [s.name, s.contact_person, s.email].filter(Boolean).join(' ').toLowerCase().includes(q)
+    );
+  }, [suppliers, search]);
+
+  const [supplierPage, setSupplierPage] = useState(1);
+  const [orderPage, setOrderPage] = useState(1);
+  useEffect(() => { setSupplierPage(1); }, [search]);
+  const pagedSuppliers = paginate(filteredSuppliers, supplierPage);
+  const pagedOrders = paginate(purchaseOrders, orderPage);
 
   const receivedOrders = purchaseOrders.filter((o) => o.status === 'received');
   const orderedOrders = purchaseOrders.filter((o) => o.status === 'ordered');
@@ -145,7 +165,7 @@ export default function Procurement() {
         }
       />
 
-      <div className="grid grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
         <div className="bg-card rounded-xl border border-border p-5">
           <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">Suppliers</p>
           <p className="text-3xl font-bold text-card-foreground">{suppliers.length}</p>
@@ -168,7 +188,14 @@ export default function Procurement() {
         </div>
       </div>
 
-      {suppliers.length === 0 ? (
+      {suppliersLoading ? (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4" aria-busy="true" aria-label="Loading procurement">
+          <Skeleton className="h-[300px] w-full rounded-xl" />
+          <Skeleton className="h-[300px] w-full rounded-xl" />
+          <Skeleton className="h-[300px] w-full rounded-xl" />
+          <Skeleton className="h-[300px] w-full rounded-xl" />
+        </div>
+      ) : suppliers.length === 0 ? (
         <EmptyState
           icon={Truck}
           title="No suppliers yet"
@@ -222,11 +249,11 @@ export default function Procurement() {
                   <p className="text-xs text-muted-foreground mt-0.5">Manage vendors, payment terms, and contacts</p>
                 </div>
                 <div className="md:w-72">
-                  <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search suppliers" />
+                  <Input type="search" aria-label="Search suppliers" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search suppliers" />
                 </div>
               </div>
               <div className="overflow-x-auto">
-                <table className="w-full">
+                <table className="w-full min-w-[520px]">
                   <thead>
                     <tr className="border-b border-border bg-muted/30">
                       <th className="text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider px-4 py-3">Supplier</th>
@@ -236,7 +263,7 @@ export default function Procurement() {
                     </tr>
                   </thead>
                   <tbody>
-                    {filteredSuppliers.map((supplier) => (
+                    {pagedSuppliers.map((supplier) => (
                       <tr key={supplier.id} className="border-b border-border last:border-0">
                         <td className="px-4 py-3">
                           <p className="text-sm font-semibold text-card-foreground">{supplier.name}</p>
@@ -254,14 +281,14 @@ export default function Procurement() {
                         <td className="px-4 py-3 text-right">
                           <DropdownMenu>
                             <DropdownMenuTrigger asChild>
-                              <Button variant="ghost" size="icon" className="h-8 w-8"><MoreHorizontal className="w-4 h-4" /></Button>
+                              <Button variant="ghost" size="icon" className="h-8 w-8" aria-label={`Actions for ${supplier.name}`}><MoreHorizontal className="w-4 h-4" /></Button>
                             </DropdownMenuTrigger>
                             <DropdownMenuContent align="end">
                               <DropdownMenuItem onClick={() => { setEditingSupplier(supplier); setSupplierDialogOpen(true); }}>Edit</DropdownMenuItem>
                               <DropdownMenuItem className="text-destructive" onClick={async () => {
                                 const confirmed = await confirm({
                                   title: 'Delete supplier?',
-                                  description: `Delete ${supplier.name} and all related purchase orders.`,
+                                  description: `Delete ${supplier.name}. Suppliers with purchase order history cannot be deleted; mark them inactive instead.`,
                                   confirmLabel: 'Delete supplier',
                                   destructive: true,
                                 });
@@ -275,6 +302,9 @@ export default function Procurement() {
                   </tbody>
                 </table>
               </div>
+              {filteredSuppliers.length > 0 && (
+                <Pagination page={supplierPage} total={filteredSuppliers.length} onPageChange={setSupplierPage} label="suppliers" />
+              )}
             </div>
 
             <div className="bg-card rounded-xl border border-border overflow-hidden">
@@ -282,13 +312,19 @@ export default function Procurement() {
                 <h3 className="text-sm font-semibold text-card-foreground">Recent Purchase Orders</h3>
                 <p className="text-xs text-muted-foreground mt-0.5">Track order status, supplier commitments, and received stock</p>
               </div>
-              {purchaseOrders.length === 0 ? (
+              {ordersLoading ? (
+                <div className="p-4 space-y-3" aria-busy="true" aria-label="Loading purchase orders">
+                  {Array.from({ length: 4 }).map((_, i) => (
+                    <Skeleton key={i} className="h-12 w-full" />
+                  ))}
+                </div>
+              ) : purchaseOrders.length === 0 ? (
                 <div className="p-8">
                   <EmptyState icon={ShoppingBag} title="No purchase orders yet" description="Create a purchase order once suppliers and products are available." actionLabel="New Purchase Order" onAction={() => setOrderDialogOpen(true)} />
                 </div>
               ) : (
                 <div className="overflow-x-auto">
-                  <table className="w-full">
+                  <table className="w-full min-w-[520px]">
                     <thead>
                       <tr className="border-b border-border bg-muted/30">
                         <th className="text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider px-4 py-3">Order</th>
@@ -299,12 +335,12 @@ export default function Procurement() {
                       </tr>
                     </thead>
                     <tbody>
-                      {purchaseOrders.slice(0, 10).map((order) => (
+                      {pagedOrders.map((order) => (
                         <tr key={order.id} className="border-b border-border last:border-0">
                           <td className="px-4 py-3">
                             <p className="text-sm font-semibold text-card-foreground">{order.product_name}</p>
                             <p className="text-xs text-muted-foreground">
-                              {order.supplier_name} | {order.order_date ? format(safeParse(order.order_date), 'MMM d, yyyy') : '-'}
+                              {order.supplier_name} | {formatDate(order.order_date, 'MMM d, yyyy')}
                             </p>
                           </td>
                           <td className="px-4 py-3 text-sm text-card-foreground">{order.quantity}</td>
@@ -323,7 +359,7 @@ export default function Procurement() {
                           <td className="px-4 py-3 text-right">
                             <DropdownMenu>
                               <DropdownMenuTrigger asChild>
-                                <Button variant="ghost" size="icon" className="h-8 w-8"><MoreHorizontal className="w-4 h-4" /></Button>
+                                <Button variant="ghost" size="icon" className="h-8 w-8" aria-label={`Actions for purchase order ${order.product_name}`}><MoreHorizontal className="w-4 h-4" /></Button>
                               </DropdownMenuTrigger>
                               <DropdownMenuContent align="end">
                                 <DropdownMenuItem onClick={() => { setEditingOrder(order); setOrderDialogOpen(true); }}>Edit</DropdownMenuItem>
@@ -343,6 +379,7 @@ export default function Procurement() {
                       ))}
                     </tbody>
                   </table>
+                  <Pagination page={orderPage} total={purchaseOrders.length} onPageChange={setOrderPage} label="orders" />
                 </div>
               )}
             </div>
@@ -354,6 +391,7 @@ export default function Procurement() {
         open={supplierDialogOpen}
         onOpenChange={setSupplierDialogOpen}
         supplier={editingSupplier}
+        isSaving={supplierMutation.isPending}
         onSave={(data) => supplierMutation.mutate({ id: editingSupplier?.id, data })}
       />
       <PurchaseOrderFormDialog
@@ -362,6 +400,7 @@ export default function Procurement() {
         order={editingOrder}
         suppliers={suppliers}
         products={products}
+        isSaving={purchaseMutation.isPending}
         onSave={(data) => purchaseMutation.mutate({ id: editingOrder?.id, data })}
       />
     </div>

@@ -5,7 +5,7 @@ import { BarChart3, BrainCircuit, FileSpreadsheet, FileText, TableProperties, Up
 import PageHeader from '@/components/shared/PageHeader';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { ScrollArea } from '@/components/ui/scroll-area';
+import { Skeleton } from '@/components/ui/skeleton';
 import { DATASETS, IMPORT_TARGETS, exportRowsToCsv, exportRowsToOds, exportRowsToPdf, getDatasetByKey, importRowsToDataset, parseSpreadsheetFile } from '@/lib/dataPortability';
 import { toast } from '@/components/ui/use-toast';
 
@@ -13,8 +13,19 @@ function StatBlock({ label, value, note }) {
   return (
     <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
       <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">{label}</p>
-      <p className="mt-2 text-3xl font-semibold tracking-tight text-slate-950">{value}</p>
+      <div className="mt-2 text-3xl font-semibold tracking-tight text-slate-950">{value}</div>
       <p className="mt-1 text-sm text-slate-500">{note}</p>
+    </div>
+  );
+}
+
+function PreviewSkeleton() {
+  return (
+    <div className="space-y-2 p-3" aria-busy="true" aria-live="polite">
+      <span className="sr-only">Loading dataset</span>
+      {Array.from({ length: 6 }, (_, index) => (
+        <Skeleton key={index} className="h-8 w-full rounded-lg" />
+      ))}
     </div>
   );
 }
@@ -28,10 +39,11 @@ export default function DataCenter() {
   const [importResult, setImportResult] = useState(null);
 
   const activeDataset = getDatasetByKey(datasetKey);
-  const { data: rows = [], isFetching } = useQuery({
+  const { data, isPending: rowsLoading, isFetching } = useQuery({
     queryKey: ['data-center', datasetKey],
     queryFn: () => activeDataset.fetcher(),
   });
+  const rows = data ?? [];
 
   const previewColumns = useMemo(() => {
     if (!rows.length) {
@@ -72,10 +84,19 @@ export default function DataCenter() {
     try {
       const result = await importRowsToDataset(importTargetKey, importPreview.rows);
       setImportResult(result);
-      await queryClient.invalidateQueries({ queryKey: ['data-center'] });
+      // Refresh the target table's cache as well as the preview, so other pages show the new rows.
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['data-center'] }),
+        ...(result.analysisOnly ? [] : [queryClient.invalidateQueries({ queryKey: [importTargetKey] })]),
+      ]);
+      const skippedNote = result.skipped ? ` ${result.skipped} blank rows skipped.` : '';
       toast({
         title: result.analysisOnly ? 'Ready for analysis' : `${result.imported} rows imported`,
-        description: result.analysisOnly ? 'No workspace records were changed.' : result.failed ? `${result.failed} rows need review.` : `Imported into ${result.target.label}.`,
+        description: result.analysisOnly
+          ? 'No workspace records were changed.'
+          : result.failed
+            ? `${result.failed} rows need review.${skippedNote}`
+            : `Imported into ${result.target.label}.${skippedNote}`,
         variant: result.analysisOnly || result.imported ? 'default' : 'destructive',
       });
     } catch (error) {
@@ -94,8 +115,12 @@ export default function DataCenter() {
       `Columns: ${columns}`,
       `Sample rows: ${sample}`,
     ].join('\n\n');
-    await navigator.clipboard.writeText(prompt);
-    toast({ title: 'AI prompt copied', description: 'Open the AI Assistant and paste it for spreadsheet analysis.' });
+    try {
+      await navigator.clipboard.writeText(prompt);
+      toast({ title: 'AI prompt copied', description: 'Open the AI Assistant and paste it for spreadsheet analysis.' });
+    } catch (error) {
+      toast({ title: 'Copy failed', description: error?.message || 'Clipboard access was blocked. Try again from a secure page.', variant: 'destructive' });
+    }
   };
 
   return (
@@ -107,7 +132,11 @@ export default function DataCenter() {
 
       <section className="grid gap-4 lg:grid-cols-3">
         <StatBlock label="Active Dataset" value={activeDataset.label} note="Choose any workspace table to export." />
-        <StatBlock label="Live Rows" value={rows.length.toLocaleString()} note={isFetching ? 'Refreshing now' : 'Current records available'} />
+        <StatBlock
+          label="Live Rows"
+          value={rowsLoading ? <Skeleton className="h-8 w-20" /> : rows.length.toLocaleString()}
+          note={isFetching ? 'Refreshing now' : 'Current records available'}
+        />
         <StatBlock label="Import Preview" value={(importPreview?.rows?.length || 0).toLocaleString()} note={importPreview ? importPreview.fileName : 'No spreadsheet loaded'} />
       </section>
 
@@ -160,9 +189,9 @@ export default function DataCenter() {
                 <TableProperties className="h-4 w-4 text-slate-500" />
                 <p className="text-sm font-semibold text-slate-900">Dataset Preview</p>
               </div>
-              <ScrollArea className="mt-4 h-[360px]">
+              <div className="mt-4 h-[360px] overflow-auto rounded-xl">
                 <div className="min-w-[720px]">
-                  {rows.length ? (
+                  {rowsLoading ? <PreviewSkeleton /> : rows.length ? (
                     <table className="w-full text-left text-sm">
                       <thead className="sticky top-0 bg-slate-50">
                         <tr className="border-b border-slate-200">
@@ -185,7 +214,7 @@ export default function DataCenter() {
                     <div className="py-16 text-center text-sm text-slate-500">No records available for this dataset.</div>
                   )}
                 </div>
-              </ScrollArea>
+              </div>
             </div>
           </div>
         </motion.div>
@@ -210,7 +239,7 @@ export default function DataCenter() {
                 <p className="text-sm font-semibold text-slate-900">Upload CSV / ODS</p>
                 <p className="mt-1 text-xs text-slate-500">Use this for contacts, reports from other systems, inventory lists, sales files, or finance data.</p>
               </div>
-              <Input type="file" accept=".csv,.ods" className="hidden" onChange={handleFile} />
+              <Input type="file" accept=".csv,.ods" className="hidden" onChange={handleFile} aria-label="Upload CSV or ODS file" />
               <span className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-medium text-white">Choose File</span>
             </label>
             <div>
@@ -234,7 +263,7 @@ export default function DataCenter() {
             </Button>
             {importResult && (
               <p className="text-sm text-slate-600">
-                {importResult.analysisOnly ? 'Analysis only; no records changed.' : `Imported ${importResult.imported}; failed ${importResult.failed}.`}
+                {importResult.analysisOnly ? 'Analysis only; no records changed.' : `Imported ${importResult.imported}; needs review ${importResult.failed}${importResult.skipped ? `; blank skipped ${importResult.skipped}` : ''}.`}
               </p>
             )}
           </div>
@@ -274,7 +303,7 @@ export default function DataCenter() {
               <BarChart3 className="h-4 w-4 text-slate-500" />
               <p className="text-sm font-semibold text-slate-900">Preview Table</p>
             </div>
-            <ScrollArea className="mt-4 h-[300px]">
+            <div className="mt-4 h-[300px] overflow-auto rounded-xl">
               <div className="min-w-[720px]">
                 {importSample.length ? (
                   <table className="w-full text-left text-sm">
@@ -299,7 +328,7 @@ export default function DataCenter() {
                   <div className="py-16 text-center text-sm text-slate-500">Upload a spreadsheet to preview its rows here.</div>
                 )}
               </div>
-            </ScrollArea>
+            </div>
           </div>
 
           <div className="mt-4 rounded-2xl border border-blue-100 bg-blue-50/60 p-4">

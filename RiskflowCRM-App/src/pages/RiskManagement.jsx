@@ -7,10 +7,13 @@ import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Progress } from '@/components/ui/progress';
+import { Skeleton } from '@/components/ui/skeleton';
+import { toast } from '@/components/ui/use-toast';
 import PageHeader from '@/components/shared/PageHeader';
 import EmptyState from '@/components/shared/EmptyState';
 import RiskFormDialog from '@/components/risk/RiskFormDialog';
 import { cn } from '@/lib/utils';
+import { useConfirm } from '@/lib/ConfirmContext';
 
 const severityConfig = {
   critical: { label: 'Critical', color: 'bg-red-100 text-red-700 border-red-200', bar: 'bg-red-500' },
@@ -28,6 +31,7 @@ const statusConfig = {
 };
 
 export default function RiskManagement() {
+  const confirm = useConfirm();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editRisk, setEditRisk] = useState(null);
   const [catFilter, setCatFilter] = useState('all');
@@ -42,16 +46,19 @@ export default function RiskManagement() {
   const createMutation = useMutation({
     mutationFn: (data) => crmClient.entities.RiskAssessment.create(data),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['risks'] }); setDialogOpen(false); },
+    onError: (e) => toast({ title: 'Risk save failed', description: e.message, variant: 'destructive' }),
   });
 
   const updateMutation = useMutation({
     mutationFn: ({ id, data }) => crmClient.entities.RiskAssessment.update(id, data),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['risks'] }); setDialogOpen(false); setEditRisk(null); },
+    onError: (e) => toast({ title: 'Risk save failed', description: e.message, variant: 'destructive' }),
   });
 
   const deleteMutation = useMutation({
     mutationFn: (id) => crmClient.entities.RiskAssessment.delete(id),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['risks'] }),
+    onError: (e) => toast({ title: 'Delete failed', description: e.message, variant: 'destructive' }),
   });
 
   const handleSave = (data) => {
@@ -75,9 +82,9 @@ export default function RiskManagement() {
         }
       />
 
-      <div className="flex gap-3 mb-6">
+      <div className="flex flex-col sm:flex-row gap-3 mb-6">
         <Select value={catFilter} onValueChange={setCatFilter}>
-          <SelectTrigger className="w-[160px]"><SelectValue /></SelectTrigger>
+          <SelectTrigger className="w-full sm:w-[160px]" aria-label="Filter by category"><SelectValue /></SelectTrigger>
           <SelectContent>
             <SelectItem value="all">All Categories</SelectItem>
             <SelectItem value="credit">Credit</SelectItem>
@@ -89,7 +96,7 @@ export default function RiskManagement() {
           </SelectContent>
         </Select>
         <Select value={sevFilter} onValueChange={setSevFilter}>
-          <SelectTrigger className="w-[160px]"><SelectValue /></SelectTrigger>
+          <SelectTrigger className="w-full sm:w-[160px]" aria-label="Filter by severity"><SelectValue /></SelectTrigger>
           <SelectContent>
             <SelectItem value="all">All Severity</SelectItem>
             <SelectItem value="critical">Critical</SelectItem>
@@ -100,10 +107,21 @@ export default function RiskManagement() {
         </Select>
       </div>
 
-      {filtered.length === 0 && !isLoading ? (
+      {isLoading ? (
+        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4" aria-busy="true" aria-label="Loading risks">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <div key={i} className="bg-card rounded-xl border border-border p-5 space-y-3">
+              <Skeleton className="h-4 w-3/4" />
+              <Skeleton className="h-3 w-1/3" />
+              <Skeleton className="h-4 w-1/2" />
+              <Skeleton className="h-2 w-full" />
+            </div>
+          ))}
+        </div>
+      ) : filtered.length === 0 ? (
         <EmptyState icon={ShieldAlert} title="No risks found" description="Start tracking financial risks by adding your first assessment." actionLabel="Add Risk" onAction={() => setDialogOpen(true)} />
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
           {filtered.map(risk => (
             <div key={risk.id} className="bg-card rounded-xl border border-border p-5 hover:shadow-lg transition-shadow group">
               <div className="flex items-start justify-between mb-3">
@@ -113,7 +131,7 @@ export default function RiskManagement() {
                 </div>
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
-                    <Button variant="ghost" size="icon" className="h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <Button variant="ghost" size="icon" aria-label={`Actions for ${risk.title}`} className="h-7 w-7 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity">
                       <MoreHorizontal className="w-3.5 h-3.5" />
                     </Button>
                   </DropdownMenuTrigger>
@@ -121,7 +139,15 @@ export default function RiskManagement() {
                     <DropdownMenuItem onClick={() => { setEditRisk(risk); setDialogOpen(true); }}>
                       <Pencil className="w-3.5 h-3.5 mr-2" />Edit
                     </DropdownMenuItem>
-                    <DropdownMenuItem className="text-destructive" onClick={() => deleteMutation.mutate(risk.id)}>
+                    <DropdownMenuItem className="text-destructive" onClick={async () => {
+                      const confirmed = await confirm({
+                        title: 'Delete risk?',
+                        description: `Delete "${risk.title}" from the risk register.`,
+                        confirmLabel: 'Delete risk',
+                        destructive: true,
+                      });
+                      if (confirmed) deleteMutation.mutate(risk.id);
+                    }}>
                       <Trash2 className="w-3.5 h-3.5 mr-2" />Delete
                     </DropdownMenuItem>
                   </DropdownMenuContent>
@@ -144,7 +170,7 @@ export default function RiskManagement() {
               <div className="space-y-2">
                 <div className="flex items-center justify-between text-xs">
                   <span className="text-muted-foreground">Impact Score</span>
-                  <span className="font-semibold text-card-foreground">{risk.impact_score}/10</span>
+                  <span className="font-semibold text-card-foreground">{risk.impact_score ?? 0}/10</span>
                 </div>
                 <Progress value={(risk.impact_score || 0) * 10} className="h-1.5" />
               </div>
@@ -158,7 +184,7 @@ export default function RiskManagement() {
         </div>
       )}
 
-      <RiskFormDialog open={dialogOpen} onOpenChange={setDialogOpen} risk={editRisk} onSave={handleSave} />
+      <RiskFormDialog open={dialogOpen} onOpenChange={setDialogOpen} risk={editRisk} isSaving={createMutation.isPending || updateMutation.isPending} onSave={handleSave} />
     </div>
   );
 }

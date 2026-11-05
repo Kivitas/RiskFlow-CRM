@@ -95,9 +95,12 @@ const CurrencyContext = createContext(null);
 const getCurrencyMeta = (code) =>
   SUPPORTED_CURRENCIES.find((currency) => currency.code === code) || SUPPORTED_CURRENCIES[0];
 
+const isSupportedCode = (code) => SUPPORTED_CURRENCIES.some((currency) => currency.code === code);
+
 const readSavedCurrency = () => {
   try {
-    return localStorage.getItem(STORAGE_KEY) || 'USD';
+    const saved = localStorage.getItem(STORAGE_KEY);
+    return saved && isSupportedCode(saved) ? saved : 'USD';
   } catch {
     return 'USD';
   }
@@ -176,6 +179,10 @@ export function CurrencyProvider({ children }) {
       if (data.result !== 'success') {
         throw new Error(data['error-type'] || 'API error');
       }
+      // Without this check a malformed body would be cached and every rate would fall back to 1.
+      if (!data.rates || typeof data.rates !== 'object' || !Number.isFinite(data.rates.EUR)) {
+        throw new Error('Unexpected exchange rate response');
+      }
       const cached = saveCachedRates(data.rates);
       setRates(cached.rates);
       setRatesSource('live');
@@ -202,6 +209,9 @@ export function CurrencyProvider({ children }) {
   }, [fetchRates]);
 
   const setCurrency = useCallback((code) => {
+    if (!isSupportedCode(code)) {
+      return;
+    }
     setCurrencyState(code);
     try {
       localStorage.setItem(STORAGE_KEY, code);
