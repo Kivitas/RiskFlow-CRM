@@ -1,0 +1,34 @@
+{
+  "version": 1,
+  "entries": {
+    "79a93d4a2f8f50b95f852280616242fee1855dc99a3c75211917f55e72e95fae": {
+      "last_emitted_at_ms": 1793873453799,
+      "message": "Use parallel execution for independent tasks. Use run_in_background for long operations (npm install, builds, tests)."
+    },
+    "445ed27a3872b681d98190bae61ccb84954e1bc4e140df5370be958dee776b3a": {
+      "last_emitted_at_ms": 1793873283670,
+      "message": "Verify changes work after editing. Test functionality before marking complete."
+    },
+    "466399dafa2d20f60587180bad0a07358eb7f2bce724df0ff682f038ad33f5ad": {
+      "last_emitted_at_ms": 1793873086060,
+      "message": "Read multiple files in parallel when possible for faster analysis."
+    },
+    "486953cd1cd0a7197fc41541e701d35871a1811cd37a100ca22c1590b48aff45": {
+      "last_emitted_at_ms": 1793872495171,
+      "message": "Spawning agent: unknown (haiku) | Task: P8D: review finance pages and config"
+    },
+    "69db992e5fcc8fe02eb49bd1d51ef9cc64ef233f5d34905c1d60392a6a1d3930": {
+      "last_emitted_at_ms": 1793872489368,
+      "message": "Spawning agent: unknown (haiku) | Task: P8C: review core pages"
+    },
+    "f8f1a31f1e6bc72796a89b650882e05122e4c5dfe2c15fe8742fdd442dc547c1": {
+      "last_emitted_at_ms": 1793872485058,
+      "message": "Spawning agent: unknown (haiku) | Task: P8B: review components and shell"
+    },
+    "a82f140c3d4d2b14d642185a89e46740ab8dce9f03828177384a929443e5cc87": {
+      "last_emitted_at_ms": 1793872480763,
+      "message": "Spawning agent: unknown (haiku) | Task: P8A: review data and security layer"
+    }
+  },
+  "updated_at": "2026-11-05T10:10:53.799Z"
+}

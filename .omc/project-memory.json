@@ -1,0 +1,75 @@
+{
+  "version": "1.0.0",
+  "lastScanned": 1793850653159,
+  "projectRoot": "C:\\Users\\Sirisha Rajana\\Desktop\\New folder\\RiskFlow CRM",
+  "techStack": {
+    "languages": [],
+    "frameworks": [],
+    "packageManager": null,
+    "runtime": null
+  },
+  "build": {
+    "buildCommand": null,
+    "testCommand": null,
+    "lintCommand": null,
+    "devCommand": null,
+    "scripts": {}
+  },
+  "conventions": {
+    "namingStyle": null,
+    "importStyle": null,
+    "testPattern": null,
+    "fileOrganization": null
+  },
+  "structure": {
+    "isMonorepo": false,
+    "workspaces": [],
+    "mainDirectories": [],
+    "gitBranches": {
+      "defaultBranch": "main",
+      "branchingStrategy": null
+    }
+  },
+  "customNotes": [],
+  "directoryMap": {
+    "RiskflowCRM-App": {
+      "path": "RiskflowCRM-App",
+      "purpose": null,
+      "fileCount": 18,
+      "lastAccessed": 1793850652746,
+      "keyFiles": [
+        "components.json",
+        "COPYRIGHT",
+        "desktop.ini",
+        "eslint.config.js",
+        "HOW TO RUN.md"
+      ]
+    },
+    "RiskflowCRM-App\\assets": {
+      "path": "RiskflowCRM-App\\assets",
+      "purpose": "Static assets",
+      "fileCount": 3,
+      "lastAccessed": 1793850652748,
+      "keyFiles": [
+        "riskflow-logo.ico",
+        "riskflow-logo.png",
+        "riskflow-logo.svg"
+      ]
+    }
+  },
+  "hotPaths": [
+    {
+      "path": "RiskflowCRM-App/src/pages/Settings.jsx",
+      "accessCount": 3,
+      "lastAccessed": 1793873528857,
+      "type": "file"
+    },
+    {
+      "path": "README.md",
+      "accessCount": 1,
+      "lastAccessed": 1793873535822,
+      "type": "file"
+    }
+  ],
+  "userDirectives": []
+}
